@@ -1,0 +1,241 @@
+---
+title: "Cancels"
+description: "How a trade that misses its deadline ends, and the route that serves every call you can send yourself"
+---
+
+A trade that does not settle before its deadline gives everyone their money back. The escrows run
+the cancel themselves, in permissionless steps that anyone may send. The relayer sends them for you
+and mirrors the progress onto the trade. This page covers what happens on chain, and the one read
+route that serves everything you need to send each step from your own wallet. See
+[Cancels and refunds](/v3/concepts/cancels-and-refunds) for the concept.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/trades/:id/cancel` | none | Every self-serve ending for the trade: the calls, their state, and the proofs |
+
+## There is no cancel endpoint
+
+No relayer route cancels, refunds or claims. Every one of those is a permissionless contract call that
+takes the order's parameters. The relayer sends them as each becomes possible, and any wallet may send
+them too. `GET /v1/trades/:id/cancel` hands out what each call needs, proofs included. The trade page
+offers a button for each step that applies, built on this route.
+
+Two settlement routes refuse work once a trade needs the cancel path:
+
+| Route | Status | Message |
+| --- | --- | --- |
+| `POST /v1/trades/:id/cosign` (first signature) | `409` | `order deadline … is inside the …s settlement horizon … — this trade needs the cancel path, not a co-signature` |
+| `POST /v1/trades/:id/cosign`, `GET /v1/trades/:id/settlement/pair` | `409` | `trade is cancelled — settlement material is not served` |
+
+## Who is the primary
+
+The **`AdManager` on the ad chain is the primary.** Only there does a clock run, and only there is the
+cancel decided. The **`OrderPortal` on the order chain follows.** It has no clock after the deadline:
+it refunds the bridger only against a proof of the primary's cancel leaf, and pays the maker against
+the primary's settled or forfeit leaf. Nothing on it can refund on time alone, so nothing can get
+ahead of the primary's decision.
+
+Those proofs are checked against a root of the ad chain published by the
+[anchor service](/v3/concepts/root-anchors). If no root is anchored yet, the refund waits until one is.
+
+## What happens on chain
+
+None of these calls checks who sends it, and none is stopped by a pause. A pause stops only new ads,
+funding, locks and deposits, never an exit. EVM names first, Stellar names in brackets.
+
+| Call | Escrow | Accepted when | What it does |
+| --- | --- | --- | --- |
+| `claimCancel` (`claim_cancel`) | `AdManager` | Order `Open` and the deadline has passed | Opens the cancel window (status `Claimed`). No funds move |
+| `finalizeCancel` (`finalize_cancel`) | `AdManager` | Order `Claimed` and the window has ended | Returns the maker's lock to the ad's free liquidity (not to the maker's wallet), status `Cancelled`, records the cancel leaf |
+| `cancelNeverLocked` (`cancel_never_locked`) | `AdManager` | The maker never locked and the deadline has passed; takes a proof of the bridger's deposit | Status `Cancelled`, records the cancel leaf. No funds move |
+| `refundByCancel` (`refund_by_cancel`) | `OrderPortal` | Order `Open`, with a proof of the cancel leaf under an anchored root | Refunds the bridger's deposit to `params.bridger` |
+| `payMakerByForfeit` (`pay_maker_by_forfeit`) | `OrderPortal` | Order `Open`, with a proof of the primary's forfeit leaf | Pays the bridger's deposit to the maker |
+| `recordSettled` (`record_settled`) | either | That leg has paid, once | Records the leg's settled leaf so the other leg can be proven paid |
+| `presentSettled` (`present_settled`) | either | Order `Open`, `Claimed` or `Disputed`, with a proof of the other leg's settled leaf | Settles this leg instead of cancelling it. Evidence always beats the clock |
+
+The dispute calls (`finalizeDispute`) are on [Disputes](/v3/api/disputes).
+
+A few things a client needs to know:
+
+- **Payouts keep working into the window, but not equally.** The `AdManager` payout to the bridger is
+  accepted until just before the window ends. The `OrderPortal` payout to the maker stops shortly
+  before the deadline. So past the deadline the maker cannot settle by co-signature, but the bridger
+  still can until the window closes.
+- **The window's end is a view.** `cancelFinalizesAt(params)` (`cancel_finalizes_at`) returns it, grace
+  included, or `0` when no window is open. The relayer copies it into the trade's `claimFinalizeAt`.
+  When the maker halted settlement on this order, the window gets an extra grace period. See
+  [Deadlines and clocks](/v3/concepts/deadlines-and-clocks).
+- **A payout that fails to push is credited, not lost.** The amount waits in
+  `claimable(recipient, token)` and the recipient pulls it with `claim(recipient, token)`, which works
+  during a pause too.
+
+## Every self-serve ending
+
+`GET /v1/trades/:id/cancel` lists every call a party can send to end the trade: the cancels and
+refund, the forfeit payout, and the settled evidence. For each it gives the chain and escrow, the
+order's parameters, when the chain accepts it, and, for the calls that take a proof, the proof the
+relayer built.
+
+It needs no auth, although the trade itself is party-only. It is the refund's liveness path: a party
+who lost its session, or anyone it asks for help, can still send the refund. Every field is public,
+every call is permissionless, and a refund always pays `params.bridger`, whoever sends it. The route
+has a strict per-IP rate limit.
+
+```json
+{
+  "tradeId": "6f1c2a4e-1b2c-4d5e-8f90-1a2b3c4d5e6f",
+  "path": "locked",                     // which ending applies (below)
+  "params": {                           // the 19 order fields; null on path "none"
+    "orderChainToken": "0x0000…1c1c",
+    "adChainToken": "0x9a9a…9a9a",
+    "amount": "1000000",
+    "bridger": "0x0000…5bdf",
+    "orderChainId": "11155111",
+    "orderPortal": "0x0000…b2b2",
+    "orderRecipient": "0x4444…4444",
+    "adChainId": "1000002",
+    "adManager": "0xa1a1…a1a1",
+    "adId": "6d1e8a20-4b7c-4f3a-a1d2-9c0b7e5f3a18",
+    "adCreator": "0x3b3b…3b3b",
+    "adRecipient": "0x0000…5bdf",
+    "salt": "147527387427062186224307124133612744303",
+    "orderDecimals": 6,
+    "adDecimals": 7,
+    "deadline": "1800000000",
+    "adSettlementSigner": "0x3b3b…3b3b",
+    "lpFeeBps": 30,
+    "protocolFeeBps": 20
+  },
+  "stateFrom": "chain",                 // chain | records | records-fallback
+  "steps": [                            // in the order they are sent
+    {
+      "call": "claimCancel",
+      "sorobanCall": "claim_cancel",
+      "chainId": "1000002",
+      "chainKind": "STELLAR",
+      "contractAddress": "0xa1a1…a1a1", // the AdManager or OrderPortal
+      "state": "done",                  // waiting | ready | done
+      "availableAt": "1800000000",      // unix seconds the chain accepts it from; null if it waits on something else
+      "waitingFor": null,
+      "package": null                   // proof calls only
+    },
+    {
+      "call": "finalizeCancel",
+      "sorobanCall": "finalize_cancel",
+      "chainId": "1000002",
+      "chainKind": "STELLAR",
+      "contractAddress": "0xa1a1…a1a1",
+      "state": "done",
+      "availableAt": "1800001800",
+      "waitingFor": null,
+      "package": null
+    },
+    {
+      "call": "refundByCancel",
+      "sorobanCall": "refund_by_cancel",
+      "chainId": "11155111",
+      "chainKind": "EVM",
+      "contractAddress": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "state": "ready",
+      "availableAt": null,
+      "waitingFor": null,
+      "package": {
+        "proof": "0x0f0f…",
+        "targetRoot": "0x3333…3333",    // the other chain's root, anchored on chainId
+        "nullifierHash": null,          // cancelNeverLocked only
+        "sourceChainId": "1000002",     // the chain whose root it targets
+        "builtAt": "2026-10-13T12:00:00.000Z"
+      }
+    }
+  ]
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `404` | `Trade not found` | No such trade |
+| `429` | `ThrottlerException: Too Many Requests` | Strict per-IP rate limit |
+
+### Paths
+
+| `path` | When | `steps` |
+| --- | --- | --- |
+| `locked` | The maker's lock is on the ad chain | `claimCancel`, `finalizeCancel`, `refundByCancel` |
+| `never-locked` | The deposit is on the order chain and the maker never locked | `cancelNeverLocked` (with its proof), `refundByCancel` |
+| `dispute` | A dispute is open, or ended without a forfeit | `refundByCancel` only; the dispute's own steps are on [Disputes](/v3/api/disputes) |
+| `forfeit` | A forfeit leaf is on the ad chain | `payMakerByForfeit` (with its proof): the deposit goes to the maker |
+| `settled` | One leg has paid | While the other has not: `recordSettled` on the paid leg, then `presentSettled` (with its proof) on the other. None once both have paid, or when the unpaid leg already ended |
+| `none` | The deposit is not on chain (on EVM, not yet `EVM_CONFIRMATIONS` deep) | None, and `params` is `null` |
+
+### Step states
+
+| `state` | Meaning |
+| --- | --- |
+| `waiting` | Not yet; `waitingFor` says why |
+| `ready` | The chain should accept it now and everything it needs is served |
+| `done` | Its effect is on chain, whoever sent it |
+
+| `waitingFor` | Meaning |
+| --- | --- |
+| `deadline` | The deadline has not passed |
+| `claim` | No cancel window is open yet |
+| `window` | The window is open; wait for `claimFinalizeAt` |
+| `cancel-leaf` | The ad chain has not cancelled yet |
+| `settled-leaf` | The paid leg's settled leaf is not recorded yet: send `recordSettled` |
+| `proof` | The relayer has not built the proof yet |
+
+Step states come from the two escrows, so a call you sent yourself shows `done` on the next read.
+Chain reads are shared between callers for 15 seconds. If a read fails, the states fall back to the
+relayer's records and `stateFrom` is `records-fallback`: a step may then show `ready` although it is
+done. Show that as "status unconfirmed". Sending a call too early, or twice, only reverts.
+
+### Sending each call
+
+The escrow is `contractAddress` on `chainId`. On Stellar, the 32-byte fields are `BytesN<32>`.
+
+| `call` | EVM | Stellar |
+| --- | --- | --- |
+| `claimCancel` | `claimCancel(params)` | `claim_cancel(params)` |
+| `finalizeCancel` | `finalizeCancel(params)` | `finalize_cancel(params)` |
+| `cancelNeverLocked` | `cancelNeverLocked(params, targetRoot, nullifierHash, proof)` | `cancel_never_locked(params, target_root, nullifier_hash, proof)` |
+| `refundByCancel` | `refundByCancel(params, targetRoot, proof)` | `refund_by_cancel(params, target_root, proof)` |
+| `payMakerByForfeit` | `payMakerByForfeit(params, targetRoot, proof)` | `pay_maker_by_forfeit(params, target_root, proof)` |
+| `recordSettled` | `recordSettled(params)` | `record_settled(params)` |
+| `presentSettled` | `presentSettled(params, targetRoot, proof)` | `present_settled(params, target_root, proof)` |
+
+`targetRoot`, `nullifierHash` and `proof` come from the step's `package`.
+
+### Keep the packages
+
+The proofs need nothing secret: each proves a leaf already on the other chain, against a root the
+target chain has already anchored. Only the relayer builds them, and the route serves a package as
+soon as the chain allows the call and the relayer has proved it. A package does not expire, so
+download each one when it appears and keep it with the trade: you can still send it if the relayer's
+API is unreachable later. `claimCancel` and `finalizeCancel` need no proof and work from the saved
+`params` alone. Packages are removed 24 hours after the trade ends.
+
+## What to poll
+
+Poll [`GET /v1/trades/:id`](/v3/api/trades#one-trade) for the trade's progress through the cancel,
+and `GET /v1/trades/:id/cancel` when you want to send a step yourself.
+
+| Situation | `status` | Other fields | Show |
+| --- | --- | --- | --- |
+| Before the deadline | `LOCKED` (or `ACTIVE`) | `deadline` in the future | The normal settlement screens |
+| Deadline passed, not yet claimed | `LOCKED` / `ACTIVE` | `claimFinalizeAt` null | "Expired, cancelling" |
+| Window open | `CLAIMED` | `claimFinalizeAt` set | "Cancel window ends at …". A settlement inside it still wins |
+| Cancel finalized, refund pending | `CLAIMED` (`ACTIVE` for a never-locked order) | Past `claimFinalizeAt` (or past `deadline`) | "Refund on its way" |
+| A settlement beat the claim | `CLAIMED` | `claimFinalizeAt` null | Settling; turns `COMPLETED` once the other leg follows |
+| Done | `CANCELLED` | `cancelReason` set | The reason. For the maker: the lock is back in the ad, withdraw it from there |
+| Dispute open | `DISPUTED` | `disputeChallengeDeadline`, `disputeFinalizeAt`, `disputeOutcome` | See [Disputes](/v3/api/disputes) |
+
+The trade never moves backwards. Once the `AdManager` has cancelled and the refund is still to land,
+the trade stays `CLAIMED` with the window's end in `claimFinalizeAt` until the refund lands and it
+becomes `CANCELLED`. The `cancelReason` values are listed on [Trades](/v3/api/trades#trade-statuses).
+
+[`GET /v1/trades/:id/settlement`](/v3/api/settlement#settlement-status) follows along: `Claimed`
+while the trade is `CLAIMED`, `Disputed` while `DISPUTED`, and `Cancelled` with
+`signaturesCollected: 0` once it is `CANCELLED`. Both parties also get a `TRADE_CANCELLED`
+notification, with text chosen by the reason.

@@ -1,0 +1,280 @@
+---
+title: "Settlement"
+description: "Co-sign a locked trade, follow its settlement, and fetch the public unlock packages"
+---
+
+Once both deposits are on chain, each party signs one short message with its BLS key. When the
+relayer holds both signatures it checks them, aggregates them, builds a zero-knowledge proof for each
+leg and sends the two payouts: the `AdManager` pays the bridger on the ad chain, the `OrderPortal`
+pays the maker on the order chain. The signatures and proofs are what the contracts check, so the
+finished packages are public and anyone can submit them. See [Co-signing](/v3/concepts/co-signing).
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `POST /v1/trades/:id/cosign` | user | Upload your co-signature |
+| `GET /v1/trades/:id/settlement` | user | Settlement status |
+| `GET /v1/trades/:id/settlement/pair` | user | Both co-signatures, once both exist |
+| `GET /v1/trades/:id/settlement/legs/:side` | none | Everything needed to submit one payout |
+
+A client's part is small: read [`GET /v1/trades/:id/params`](/v3/api/trades#order-parameters-for-signing),
+sign, upload, then watch `GET /v1/trades/:id/settlement` (or the `trade:status` socket event) until
+`Filled`.
+
+## The bridge fee
+
+The ad chain takes a fee from what the bridger receives: a share stays in the maker's ad and a share
+goes to the protocol. The order chain takes nothing. The split is fixed per trade by `lpFeeBps` and
+`protocolFeeBps` in the order, so a later change does not affect it. Each payout emits
+`FeeCharged(orderHash, lpFee, protocolFee)`. See [Fees](/v3/concepts/fees).
+
+## Upload a co-signature
+
+`POST /v1/trades/:id/cosign` stores one party's signature. Both parties upload the **same** `auth`;
+only `signer`, `blsSig` and `blsPubKey` differ.
+
+```json
+{
+  "signer": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4", // your party account: 0x + 40 hex (EVM) or 0x + 64 hex (Stellar)
+  "auth": {
+    "domainTag": "0x3d7bf6a386b1a08577b287b9c96a47ad90915165c3075b0d7765ff247a046df5", // keccak256("ProofBridge.Settlement.v1")
+    "orderChainId": "11155111",
+    "adChainId": "1000002",
+    "orderHash": "0x4f1c…4f1c",          // the trade's order hash
+    "orderChainRoot": "0x1a2b…1a2b",     // the pinned roots, from /params
+    "adChainRoot": "0x2c3d…2c3d",
+    "makerKeyCommitment": "0x9e8f…9e8f", // the maker key, from /params
+    "adLegNullifier": "0x1c2b…1c2b",     // the leg nullifiers, from /params
+    "orderLegNullifier": "0x0e1d…0e1d"
+  },
+  "blsSig": "0xb2b2…b2b2",               // 0x + 192 hex: compressed BLS12-381 G2 signature
+  "blsPubKey": "0xa1a1…a1a1"             // 0x + 96 hex: compressed G1 key
+}
+```
+
+`auth` is the `SettlementAuth` (v4): the domain tag plus eight fields. The signature is over their
+288-byte concatenation, hashed to G2. Don't build it by hand: use `buildSettlementPreimage` and
+`signSettlement` from `@proofbridge/bls-encodings`.
+
+What the signature binds:
+
+- **The order.** `orderHash` must be the trade's. Both verifiers refuse a co-signature for another order.
+- **The roots.** They must be the pair `/params` pinned. A deposit landing between the two parties'
+  fetches cannot split them.
+- **The maker key.** A maker upload under any key other than `makerKeyCommitment` is refused, and so
+  is a pair aggregated under another key.
+- **The nullifiers.** Each payout must consume the nullifier signed for its leg.
+
+The maker signs as the order's settlement signer. Your key must sit in a live registry slot on
+**both** trade chains, not expiring within the settlement horizon. You don't send slot ids; the
+relayer finds them. See [Keys](/v3/api/keys).
+
+```json
+{
+  "accepted": true,
+  "status": {
+    "tradeId": "8b0e3c52-1f4a-4d7e-9a61-2c5f0b8d7e13",
+    "state": "Signed",
+    "signaturesCollected": 1,
+    "parties": ["maker"],
+    "updatedAt": 1790000000000
+  }
+}
+```
+
+A wrong signature is refused at upload and never stored, so it cannot block the right one. The second
+signature completes the pair: the relayer verifies, aggregates and queues both proofs inside the
+request, and only then answers `Aggregated`. Re-uploading the same bytes is a no-op.
+
+On any `roots-not-pinned` refusal, read `/params` again and sign once more.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | validation | A field has the wrong shape |
+| `400` | `auth.domainTag must be the settlement tag …` | Wrong domain tag |
+| `400` | `auth.orderHash does not match the trade order hash` | |
+| `400` | `… key registration is not confirmed on every trade chain` | No live key on one of the chains |
+| `400` | `… uploaded key does not match any live registered slot` | |
+| `400` | `… the slot holding this key expires within the settlement horizon — rotate first` | |
+| `400` | `maker …: key-not-named — …` | The auth names another maker key; re-read `/params` |
+| `400` | `nullifiers-not-the-trade — …` | The auth names other nullifiers; re-read `/params` |
+| `400` | `cosig-invalid` | The signature does not verify over this auth under the uploaded key |
+| `403` | `signer is not a party to this trade` / `caller does not control the signer account` | |
+| `404` | `Trade not found` | |
+| `409` | `trade is cancelled — settlement material is not served` | |
+| `409` | `trade is settled — co-signature uploads are closed` | |
+| `409` | `order deadline … is inside the …s settlement horizon …` | Too close to the deadline; the trade needs the [cancel path](/v3/api/cancels) |
+| `409` | `… key is live on one chain only (mid-rotation) — retry once both confirm` | |
+| `409` | `maker …: key is not in the slot the order pinned at lock — …` | Sign with the pinned key |
+| `409` | `nullifiers-not-ready` | Both halves of the trade secret are not on record yet; `secretCustody` says which leg is pending |
+| `409` | `roots-not-ready — …` | The deposits are not settlement grade yet |
+| `409` | `roots-not-pinned — …` | The roots differ from the pinned pair, or the pin was dropped; re-read `/params` and sign again |
+| `409` | `co-signature auth mismatch — the parties signed different roots` | |
+| `409` | `co-signature pair already complete — uploads are frozen` | |
+| `503` | `… a key registry could not be read — …; retry shortly` | |
+| `503` | `aggregation failed — re-upload to retry` | |
+
+## Settlement status
+
+`GET /v1/trades/:id/settlement` returns where the trade's settlement stands. Only the trade's parties
+may read it.
+
+```json
+{
+  "tradeId": "8b0e3c52-1f4a-4d7e-9a61-2c5f0b8d7e13",
+  "state": "Aggregated",                 // see Settlement states
+  "signaturesCollected": 2,              // 0, 1 or 2
+  "parties": ["maker", "bridger"],       // which sides have co-signed
+  "partyKeys": [                         // gate the sign button on registered
+    { "party": "maker", "account": "0x5b38…ddc4", "registered": true },
+    { "party": "bridger", "account": "0xab84…5cb2", "registered": true }
+  ],
+  "legs": [                              // once a leg package exists
+    { "sideFlag": 0, "status": "RELEASED" },
+    { "sideFlag": 1, "status": "RELEASED" }
+  ],
+  "halt": { "by": "maker", "since": 1790000100000 },        // only while held for the maker's halt
+  "resign": { "reason": "…", "repin": false, "since": 1790000050000 }, // only when both must re-sign
+  "secretCustody": { "adLeg": "parties", "orderLeg": "parties" },
+  "legFailures": [                       // only when a leg cannot settle
+    { "sideFlag": 1, "stage": "PROVING", "reason": "nullifier-mismatch", "since": 1790000200000 }
+  ],
+  "updatedAt": 1790000123000             // epoch milliseconds
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `state` | The settlement state (below) |
+| `signaturesCollected`, `parties` | The pair's progress |
+| `partyKeys` | Per party: `account` (the maker's is the settlement signer) and `registered`, a confirmed key on both trade chains |
+| `legs` | Per leg: `BUILT` (proof built, waiting for the other leg) or `RELEASED` (handed to the submitter). `sideFlag` `0` is the ad-chain payout to the bridger, `1` the order-chain payout to the maker |
+| `halt` | The relayer is holding the payouts because the maker halted settlement on chain (below) |
+| `resign` | The relayer dropped a complete pair the chain would refuse, for example because a key slot expired. `reason` says what comes next; both parties sign again |
+| `secretCustody` | Who made each leg's half of the trade secret, as on [`/params`](/v3/api/trades#order-parameters-for-signing) |
+| `legFailures` | Legs that cannot settle, with `stage` (`PROVING` or `SUBMIT`), `reason` and `since`. `nullifier-mismatch` means the stored half does not match the co-signed nullifier; that leg can never settle and the trade ends through the cancel path |
+
+`partyKeys` and `secretCustody` are always present here. The cosign response and the `trade:status`
+push carry only `tradeId`, `state`, `signaturesCollected`, `parties` and `updatedAt`.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `401` | | No access token |
+| `403` | `caller is not a party to this trade` | |
+| `404` | `Trade not found` | |
+
+## The collected pair
+
+`GET /v1/trades/:id/settlement/pair` returns both co-signatures, so either party can keep its own
+claiming material and aggregate locally. It is served only once both halves exist: the first
+signature is never shown to the second signer before they sign.
+
+```json
+{
+  "tradeId": "8b0e3c52-1f4a-4d7e-9a61-2c5f0b8d7e13",
+  "complete": true,                      // never flips back to false
+  "auth": { "domainTag": "0x3d7b…6df5", "orderChainId": "11155111", "adChainId": "1000002", "…": "the co-signed SettlementAuth" },
+  "signatures": [
+    { "party": "maker", "signer": "0x5b38…ddc4", "blsSig": "0xb2b2…", "blsPubKey": "0xa1a1…" },
+    { "party": "bridger", "signer": "0xab84…5cb2", "blsSig": "0xd4d4…", "blsPubKey": "0xc3c3…" }
+  ]
+}
+```
+
+Before completion you get `complete: false`. Later, once the relayer's short-lived copy has expired,
+`signatures` is empty and `aggSig`, `pkMaker` and `pkBridger` carry the aggregated material instead.
+After both legs settle and the material is pruned, you get `settled: true` with `auth: null`.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `403` | `caller is not a party to this trade` | |
+| `404` | `Trade not found` | |
+| `409` | `trade is cancelled — settlement material is not served` | |
+
+## Public leg package
+
+`GET /v1/trades/:id/settlement/legs/:side` returns everything needed to submit one payout. It needs no
+auth: every field is public, and the payout is gated on chain by the proof and the co-signatures, not
+by who sends it. Anyone holding the trade id can finish the settlement if both parties and the
+relayer's submitter are down.
+
+`side` is `0` (the `AdManager` payout on the ad chain, to the bridger) or `1` (the `OrderPortal`
+payout on the order chain, to the maker). A leg is served only when the relayer would release it
+itself: when the other leg's package exists too, or the other leg already paid out, and (while neither
+has landed) the deadline is not too close.
+
+```json
+{
+  "tradeId": "8b0e3c52-1f4a-4d7e-9a61-2c5f0b8d7e13",
+  "sideFlag": 0,
+  "chainId": "1000002",                  // the chain to submit on
+  "contractAddress": "0x5f3c…1f3c",      // the AdManager (0) or OrderPortal (1)
+  "unlockParams": { "…": "the 19 order fields, as on Trades" },
+  "proof": "0x2a7f…",                    // the deposit proof, about 14.5 KB of hex
+  "publicInputs": ["0x0b7d…", "0x4f1c…", "0x1a2b…", "0x…01"], // nullifierHash, orderHash, targetRoot, leafDomain
+  "nullifierHash": "0x0b7d…0b7d",
+  "targetRoot": "0x1a2b…1a2b",           // the other chain's signed root
+  "auth": { "…": "the co-signed SettlementAuth" },
+  "aggSig": "0xe5e5…",                   // compressed G2 aggregate
+  "pkMaker": "0xa1a1…",                  // compressed G1
+  "pkBridger": "0xc3c3…",
+  "makerSlotId": 3,                      // the maker key's slot on this leg's chain
+  "bridgerSlotId": 5                     // the bridger key's slot on this leg's chain
+}
+```
+
+From the package alone you build the co-signature data (version 3: the auth, the two slot ids, then
+both keys and the aggregate in EIP-2537 form) and call
+`unlock(unlockParams, nullifierHash, targetRoot, proof, cosigData)`.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `side must be 0 (AdManager) or 1 (OrderPortal)` | Bad `side` |
+| `404` | `no servable leg package` | The leg does not exist, or is held until its pair is ready |
+| `429` | `ThrottlerException: Too Many Requests` | Strict per-IP rate limit, 10 a minute |
+
+## Settlement states
+
+| State | Meaning |
+| --- | --- |
+| `Open` | The trade is `INACTIVE` or `ACTIVE` |
+| `Locked` | Both sides deposited; nobody has co-signed, or a dropped pin reset the cycle |
+| `Signed` | One of two signatures collected, or both with the hand-off not finished |
+| `Aggregated` | Both collected, verified and aggregated; both proofs queued |
+| `Settling` | One payout confirmed on chain |
+| `Filled` | Both payouts confirmed; the trade is `COMPLETED` |
+| `Cancelled` | The trade is `CANCELLED` |
+| `Claimed` | A cancel window is open on the ad chain. Co-signing is still accepted and a settlement still wins |
+| `Disputed` | A dispute is open |
+
+`Claimed` and `Disputed` take priority over `Settling`, so a leg that already paid shows only in the
+trade's `adCreatorClaimed` and `bridgerClaimed`. If the trade leaves `CLAIMED` or `DISPUTED` without
+ending, the state is worked out again from the pair and the payouts. Between `Aggregated` and
+`Settling` the progress signal is `legs`.
+
+## Halting and resuming settlement
+
+There is no endpoint for this. A maker halts co-signed payouts from their ads with their own
+transaction on the ad chain's `AdManager`, from the account that owns the ads:
+
+| | EVM | Stellar |
+| --- | --- | --- |
+| Halt | `haltSettlement()` | `halt_settlement(maker)` |
+| Resume | `resumeSettlement()` | `resume_settlement(maker)` |
+| Read | `halted(maker)`, `lastResumedAt(maker)` | `halt_of(maker)` |
+
+One transaction covers every ad that maker owns on that `AdManager`, and takes effect in the same
+block or ledger. An agent cannot halt or resume.
+
+While halted, the co-signed `AdManager` payout reverts. Nothing else reads the halt: settlement
+evidence still pays the bridger, and new locks still work. A halt in force at or after the deadline
+makes a later cancel wait an extra grace period, so a maker already paid on the order chain cannot
+also take the lock back.
+
+The relayer checks the halt before every payout it sends, for both legs, and holds them while it
+stands. The status then shows `halt: { "by": "maker", "since": … }` with the state still `Aggregated`
+and both legs `RELEASED`. It clears at the next sweep after the maker resumes, when the leg lands, or
+when the deadline passes, after which the trade ends through the [cancel path](/v3/api/cancels). For
+the chain's own answer, read `halted(maker)` or `halt_of(maker)` directly. The public leg route keeps
+serving packages while halted.

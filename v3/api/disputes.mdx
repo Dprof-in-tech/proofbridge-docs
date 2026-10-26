@@ -1,0 +1,220 @@
+---
+title: "Disputes"
+description: "File, answer and finalize disputes on chain, attach evidence through the relayer, and read the outcome"
+---
+
+A dispute is how the maker or the bridger says a trade went wrong before its window closes. Filing, answering, ruling
+and finalizing are contract calls on the ad chain's `AdManager`; the relayer has no route for them. Its dispute routes
+are the evidence store, where you upload the files behind your evidence and get the hash to commit. See
+[Disputes](/v3/concepts/disputes) for the bond, the rules and the outcomes.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `PUT /v1/trades/:id/evidence/files/:sha256` | user | upload one evidence file |
+| `POST /v1/trades/:id/evidence` | user | post your evidence manifest and get the hash to commit on chain |
+| `GET /v1/trades/:id/evidence` | user | read both sides' committed evidence and your own drafts |
+
+## The contract calls
+
+Disputes live on the `AdManager` on the ad chain. The `OrderPortal` on the order chain has no dispute of its own; it
+follows the outcome once a proof of the ad chain's result reaches it.
+
+| Step | Who | Call |
+| --- | --- | --- |
+| File | the maker or the bridger | `AdManager.dispute(params, evidence)`, with the bond |
+| Answer | the other party, once | `AdManager.respondToDispute(params, evidence)` |
+| Rule | the arbiter service | `DisputeManager.resolveDispute(orderHash, outcome)` |
+| End by settlement | anyone (the relayer in practice) | `AdManager.presentSettled(params, root, proof)`, or the co-signed unlock |
+| Finalize | anyone (the relayer in practice) | `AdManager.finalizeDispute(params)` |
+| Pay the order leg | anyone (the relayer in practice) | `OrderPortal.payMakerByForfeit(params, root, proof)` or `OrderPortal.refundByCancel(params, root, proof)` |
+| Withdraw a credited bond | the recipient | `DisputeManager.claim(recipient)` |
+
+On Soroban the same calls are `dispute(params, filer, evidence)`, `respond_to_dispute(params, responder, evidence)`
+and `finalize_dispute(params)` on the ad-manager, where `filer` and `responder` must sign.
+
+- `params` is the order's full parameter set from [`GET /v1/trades/:id/params`](/v3/api/trades). The order hash is
+  recomputed from it, so the amount and the parties cannot be faked.
+- `evidence` is a `bytes32` you commit to. Post your files to the evidence store first and commit the hash it returns,
+  so the other party and the arbiter service can open what it points to. A hash committed without the store still
+  works on chain, but nobody else can read it.
+- **The bond.** Quote it on chain before the wallet signs: `DisputeManager.routeBond(peerChainId, adToken, adAmount)`
+  returns `(bondToken, bond)` on EVM (a zero `bondToken` means native), `route_bond` on Soroban. A native bond on EVM
+  is sent as `msg.value` and must be exact.
+- **Windows.** You can file while the order is `Open` or `Claimed`, up to the order's deadline plus its buffer. The
+  answer must come before the challenge deadline, and before a ruling. The arbiter service rules before the same
+  deadline. Proof that the trade settled ends the dispute at any point before finalize, over any ruling.
+- **Finalize** opens at `disputeFinalizeAt` on the trade. With no ruling the outcome is `MutualRefund`.
+
+The relayer watches for filings, presents settlement proof when it exists, finalizes once the window is over and
+carries the outcome to the order chain. You do not need to send those calls yourself.
+
+## Upload a file
+
+`PUT /v1/trades/:id/evidence/files/:sha256`
+
+Upload one file. The body is the raw bytes (not JSON, not multipart), `Content-Type` is the file's type, and the path
+carries the file's SHA-256 as `0x` + 64 hex. Uploading the same file again is accepted.
+
+- Types: `image/jpeg`, `image/png`, `video/mp4` or `application/pdf`. The leading bytes must match the type.
+- At most 10 MiB per file and 10 files per party per trade.
+- Accepted while the trade is `LOCKED`, `CLAIMED` or `DISPUTED`.
+- Until you commit its hash on chain, only you can see the upload.
+
+```json
+{ "sha256": "0x9f2c1e5a7b3d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6", "size": 48213, "contentType": "image/png" }
+```
+
+This route has a strict per-IP rate limit.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `evidence-hash-mismatch` | the bytes hash to another value than the path's |
+| `400` | `evidence-empty` | an empty file |
+| `403` | `Only a party to the trade may add evidence` | you are not the maker or the bridger |
+| `409` | `evidence-file-limit` | an 11th file |
+| `409` | `evidence-closed` | the trade is not `LOCKED`, `CLAIMED` or `DISPUTED` |
+| `413` | `Evidence files are at most <n> bytes` | the file is too large |
+| `415` | `evidence-type` | another type, or bytes that are not the declared type |
+| `503` | `evidence-store-unavailable` | the store refused the file; retry |
+
+## Post the manifest
+
+`POST /v1/trades/:id/evidence`
+
+Describe your case and list the files you uploaded. The answer's `evidenceHash` is the `bytes32` your wallet commits
+in `dispute` or `respondToDispute`. You act for your own side only.
+
+```json
+{
+  "side": "bridger",                     // "maker" | "bridger"
+  "description": "The maker locked but never co-signed before the deadline.",  // at most 4000 characters
+  "files": [                             // at most 10, each uploaded by you to this trade
+    { "name": "receipt.png", "sha256": "0x9f2c…a6", "size": 48213 }
+  ]
+}
+```
+
+```json
+{
+  "side": "bridger",
+  "evidenceHash": "0x27f7046762d65887e04fe0473e6442b794aa25e14c357f4a13534bf3ba574c3e",  // commit this on chain
+  "committed": false                     // true once your side's on-chain slot holds it
+}
+```
+
+The hash is keccak-256 of `{ v: 1, description, files }` as JSON, with the description trimmed and the files sorted by
+hash, so you can recompute it yourself.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `evidence-file-missing` | a listed file was not uploaded, or has another size |
+| `400` | `evidence-file-duplicate` | a file is listed twice |
+| `403` | `You can add evidence only for your own side of the trade` | the `side` is not yours |
+| `409` | `evidence-already-committed` | your side's on-chain slot already holds another hash |
+| `409` | `evidence-closed` | the trade is not `LOCKED`, `CLAIMED` or `DISPUTED` |
+
+## Read the evidence
+
+`GET /v1/trades/:id/evidence`
+
+Both sides' committed evidence, plus your own uncommitted manifests, oldest first. Each file carries a download link
+that expires after 5 minutes; read the list again for fresh links. Evidence shows as `committed` within a minute or so
+of the hash landing on chain. Only the two parties and the arbiter service can read it.
+
+```json
+{
+  "tradeId": "2b3c4d5e-6f70-4a8b-9c0d-1e2f3a4b5c6d",
+  "items": [
+    {
+      "side": "bridger",
+      "evidenceHash": "0x27f7046762d65887e04fe0473e6442b794aa25e14c357f4a13534bf3ba574c3e",
+      "committed": true,
+      "description": "The maker locked but never co-signed before the deadline.",
+      "files": [
+        { "name": "receipt.png", "sha256": "0x9f2c…a6", "size": 48213, "contentType": "image/png",
+          "url": "https://store.example/evidence/…",   // null once the file is no longer held
+          "urlExpiresAt": "2026-10-13T09:05:00.000Z" }
+      ],
+      "createdAt": "2026-10-13T09:00:00.000Z"
+    }
+  ]
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `403` | `Only a party to the trade may read its evidence` | you are not the maker or the bridger |
+| `404` | `Trade not found` | unknown trade |
+
+Every evidence route answers `503 evidence-store-disabled` on a relayer without an evidence store. You can still
+commit a hash of your own on chain.
+
+Evidence is kept while the trade is open. Once the trade ends, everything is deleted after 90 days; a manifest that was
+never committed may go sooner.
+
+## What the frontend reads
+
+A dispute shows up on the ordinary trade object from [`GET /v1/trades/:id`](/v3/api/trades), and both parties get a
+[notification](/v3/api/notifications) at each step (`DISPUTE_FILED`, `DISPUTE_ANSWERED`, `DISPUTE_RULED`, then
+`TRADE_CANCELLED` when it ends that way). The relayer writes these fields from chain state.
+
+```json
+{
+  "status": "DISPUTED",
+  "deadline": "1767229200",                 // the order's deadline, unix seconds
+  "disputeChallengeDeadline": "1767236400", // last second to answer or rule; null once ended
+  "disputeFinalizeAt": "1767236400",        // when finalize can run; null once finalized or ended by settlement
+  "disputeOutcome": "BridgerForfeit",       // null while unruled
+  "disputeInitiator": "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
+  "disputeInitiatorRole": "bridger",        // the other role may answer
+  "disputeAnswered": false,
+  "claimFinalizeAt": null,
+  "cancelReason": null                      // set once CANCELLED
+}
+```
+
+Offer "Answer" only to the role that did not file, while `disputeAnswered` is `false`, `disputeOutcome` is null, and
+before `disputeChallengeDeadline`. Never label `disputeFinalizeAt` as the end of the challenge: it can be later.
+
+| What the trade shows | Meaning |
+| --- | --- |
+| `DISPUTED`, `disputeFinalizeAt` set, `disputeOutcome` null | open and unruled |
+| `DISPUTED`, `disputeFinalizeAt` set, `disputeOutcome` set | ruled; final at `disputeFinalizeAt` |
+| `DISPUTED`, `disputeFinalizeAt` null, `disputeOutcome` set | finalized on the ad chain; the order-chain leg is still settling |
+| `CANCELLED`, `cancelReason: "forfeit-maker-paid"` | `BridgerForfeit`: the deposit paid the maker |
+| `CANCELLED`, `cancelReason: "forfeit-bridger-paid"` | `MakerForfeit`: the bridger was refunded and paid the maker's locked amount |
+| `CANCELLED`, `cancelReason: "finalized"` | `MutualRefund` or unruled: each side got its own funds back |
+| `COMPLETED` | proof of settlement ended the dispute (`disputeOutcome: "TradeProceeds"`) |
+
+`disputeOutcome` can also be `Resolved` when the dispute ended without a ruling the relayer saw.
+
+## Outcomes at a glance
+
+| Outcome | Reached by | Ad chain | Order chain | Bond | Trade ends |
+| --- | --- | --- | --- | --- | --- |
+| `TradeProceeds` | proof of settlement only | maker paid | filled | to the protocol fee pool, unless the maker blocked its own co-signed payout | `COMPLETED` |
+| `MutualRefund` | a ruling, or no ruling | lock back to the ad | refunded to the bridger | back to the filer | `CANCELLED` (`finalized`) |
+| `BridgerForfeit` | a ruling | lock back to the ad | paid to the maker | to the filer if the maker filed, else the fee pool | `CANCELLED` (`forfeit-maker-paid`) |
+| `MakerForfeit` | a ruling | locked amount paid to the bridger | refunded to the bridger | to the filer if the bridger filed, else the fee pool | `CANCELLED` (`forfeit-bridger-paid`) |
+
+The arbiter service can rule only `MutualRefund`, `BridgerForfeit` or `MakerForfeit`. `TradeProceeds` comes only from
+proof that the trade settled. A bond that cannot be pushed to its recipient is credited instead, and withdrawn with
+`claim`.
+
+## Dispute states
+
+These are the `AdManager`'s order statuses around a dispute.
+
+| State | Meaning |
+| --- | --- |
+| `Open` | locked, no dispute |
+| `Claimed` | a cancel was claimed at the deadline; a dispute can still be filed in its window |
+| `Disputed` (unruled) | filed; the other party may answer once, the arbiter service may rule |
+| `Disputed` (ruled) | ruled; proof of settlement can still override until finalize |
+| `Filled` | ended by proof of settlement (`TradeProceeds`) |
+| `Resolved` | finalized with the ruling, or `MutualRefund` with none |
+
+The `OrderPortal` never shows `Disputed`. It stays `Open` until the ad chain's result is proven to it, then moves to
+`Filled` (forfeit to the maker) or `Cancelled` (refund to the bridger).
