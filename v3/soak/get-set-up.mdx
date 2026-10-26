@@ -1,0 +1,49 @@
+---
+title: "Get set up"
+description: "Wallets, test funds and your settlement key: everything you need before your first trade"
+---
+
+Work through this once. Each step links the full guide if you get stuck.
+
+## 1. Wallets
+
+<CardGroup cols={2}>
+  <Card title="Ethereum Sepolia" icon="/logos/ethereum.svg">
+    MetaMask, Rainbow or another browser wallet on desktop. On a phone, use WalletConnect.
+  </Card>
+  <Card title="Stellar Testnet" icon="/logos/stellar.svg">
+    Freighter, xBull, Lobstr or Hana on desktop. On a phone, use xBull or WalletConnect.
+  </Card>
+</CardGroup>
+
+Switch each wallet to its testnet: **Sepolia** in your EVM wallet, **Testnet** in your Stellar wallet.
+
+Open the app from the **Soak** tab on [The soak](/v3/soak) page, click **Connect Wallet**, and sign in on each
+network. Connecting the second wallet links it to the same account. [Connect a wallet](/v3/guides/connect-wallet).
+
+## 2. Test funds
+
+| You need | Where |
+| --- | --- |
+| Sepolia ETH, for gas | any public Sepolia faucet |
+| Testnet XLM, for fees | Stellar Friendbot (it also creates a new account) |
+| The bridge tokens (WXLM and PB on Sepolia, wETH and PB on Stellar) | the in-app **Faucet**: 1,000,000 per claim |
+
+[Get test tokens](/v3/guides/faucet).
+
+## 3. Your settlement key
+
+Every wallet you trade from needs a settlement key, registered once. On the **BLS Keys** page, click **Register**,
+sign the derivation message, then sign the registration. The relayer pays the gas. Do this for each wallet.
+[Register a settlement key](/v3/guides/register-a-settlement-key).
+
+While you're there, **file an emergency stop** for your key: it's part of what we're testing.
+
+## Ready check
+
+- [ ] Signed in on Sepolia and Stellar, both wallets linked
+- [ ] Sepolia ETH and testnet XLM in the wallets
+- [ ] Bridge tokens from the faucet
+- [ ] **BLS Keys** shows **Registered** for each wallet
+
+Then go to [What to test](/v3/soak/what-to-test).
