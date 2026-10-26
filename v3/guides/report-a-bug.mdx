@@ -1,0 +1,51 @@
+---
+title: "Report a bug or finding"
+description: "Log a bug, a confusing moment or an idea from the soak on the Feedback page"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+During the soak, the **Feedback** page is where bugs and findings go, whether they're yours or ones someone shared
+on Discord, X or Telegram. No sign-in is needed. Each report goes straight to the team's review queue.
+
+<Steps>
+  <Step title="About">
+    Give it a short **Feedback Title**, pick a **Category** and a **Severity**. These three are required.
+
+    | Category | Use it for |
+    | --- | --- |
+    | Bug | something broke |
+    | UX friction | it works, but it's harder than it should be |
+    | Documentation | the docs are wrong or missing something |
+    | Feature request | something you'd like added |
+    | Confusion | you weren't sure what was happening |
+    | Positive feedback | something worked well |
+    | Environment | a wallet, network or browser problem |
+
+    Severity is **Low**, **High** or **Blocker** (it stops you from finishing).
+  </Step>
+  <Step title="Reporter">
+    Who reported it and where: a handle, the **Source** (Discord, X, Telegram, Email, In-app form, Other), when it was
+    reported, and their role (for example, Bridger or Maker). All optional.
+  </Step>
+  <Step title="Details">
+    What they were trying to do, what actually happened, what they expected instead, and the steps to reproduce, if
+    known.
+  </Step>
+  <Step title="Context">
+    **Transaction Details** (an order ID, a transaction hash, the asset), up to five screenshots or videos (JPEG, PNG
+    or MP4, up to 10MB each), links to the original message, and whether it's been reported before. Then **Submit**.
+  </Step>
+</Steps>
+
+<Warning>
+Never include private keys or seed phrases.
+</Warning>
+
+{/* SCREENSHOT: Feedback page, Details step filled in */}
+<Screenshot caption="Logging a report" />
+
+A short bot check runs when you submit. When the report is saved, you'll see **Feedback logged!** with the report's
+reference (for example, `PF-30001`). Quote it if you follow up with the team.
+
+One address can send up to 10 reports an hour.
