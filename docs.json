@@ -95,6 +95,21 @@
             ]
           },
           {
+            "tab": "Soak",
+            "groups": [
+              {
+                "group": "Soak testing",
+                "pages": [
+                  "v3/soak/index",
+                  "v3/soak/get-set-up",
+                  "v3/soak/what-to-test",
+                  "v3/soak/report-findings",
+                  "v3/soak/timings-and-faq"
+                ]
+              }
+            ]
+          },
+          {
             "tab": "API Reference",
             "groups": [
               {
