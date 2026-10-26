@@ -1,0 +1,77 @@
+---
+title: "Cancels and refunds"
+description: "How a trade that doesn't settle ends: cancel, refund, and the never-locked case"
+---
+
+A trade that doesn't settle by its [deadline](/v3/concepts/deadlines-and-clocks)
+still ends, and each side gets its funds back. No fee is taken on any of
+these paths.
+
+## Before any money moves
+
+Creating an order **reserves** part of the Maker's ad. If the Bridger
+never funds it, the reservation is released after ~30 minutes. Nothing
+happened on-chain, so there's nothing to refund.
+
+## A locked trade that didn't settle
+
+<Steps>
+  <Step title="Start the cancel">
+    After the deadline, anyone can start a cancel on the ad chain
+    (`claimCancel`). The trade shows **Cancellation claimed** and the
+    cancel window opens.
+  </Step>
+  <Step title="The cancel window">
+    During the window, a co-signed payout or a proof that the trade
+    settled still ends it as settled. Either party can also file a
+    [dispute](/v3/concepts/disputes).
+  </Step>
+  <Step title="Finish the cancel">
+    After the window, anyone can finish it (`finalizeCancel`). The Maker's
+    lock returns to the ad, and a cancel leaf is recorded in the ad
+    chain's Merkle Mountain Range.
+  </Step>
+  <Step title="Refund the deposit">
+    On the order chain, the refund (`refundByCancel`) proves that cancel
+    leaf and returns the Bridger's full deposit. The trade shows **Refund
+    on its way**, then **Cancelled**.
+  </Step>
+</Steps>
+
+The order chain checks the cancel against a root published by the
+[anchor service](/v3/concepts/root-anchors). If the anchor service is
+unavailable, refunds on the order chain wait until it returns: the order
+chain has no clock of its own and only follows the ad chain's proven
+outcome.
+
+## An order the Maker never locked
+
+If the Bridger funded the order but the Maker never locked, there's no
+lock to release. After the deadline, anyone can cancel the order on the ad
+chain (`cancelNeverLocked`) by proving the Bridger's deposit. That records
+a cancel leaf, and the Bridger is refunded on the order chain the same way
+as above.
+
+The same route refunds an order whose [fee](/v3/concepts/fees) changed
+between the deposit and the lock.
+
+## Who sends these transactions
+
+All of these calls are permissionless. The relayer normally sends them,
+so you don't have to do anything. If you'd rather not wait, the trade page
+has a button for each step that applies (**Claim cancel**, **Finalize
+cancel**, **Cancel never-locked order**, **Refund the deposit**), and the
+relayer serves the data and proofs each one needs.
+
+## A payout that couldn't be delivered
+
+If a payout can't be pushed to a recipient (for example, a token transfer
+fails), the amount isn't lost and the trade still ends. It's credited to
+the recipient as a claimable balance, which they withdraw with `claim`.
+Claiming is never blocked by a pause.
+
+## One side settled, the other didn't
+
+If one side's payout landed but the other's didn't, the missing side can
+be completed by proving the settled one (`presentSettled`). The trade page
+offers **Record the settled leg** and **Settle the other leg** for this.

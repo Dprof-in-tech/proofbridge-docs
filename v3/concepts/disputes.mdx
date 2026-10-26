@@ -1,0 +1,121 @@
+---
+title: "Disputes"
+description: "Filing a dispute, the bond, evidence, rulings and the four outcomes"
+---
+
+A dispute is how either party challenges a trade that went wrong. It's
+part of the contracts: filing, the bond, the ruling and the payout all
+happen on-chain, on the ad chain. The order chain has no dispute of its
+own; it follows the outcome the ad chain records.
+
+## The states
+
+On the ad chain, an order moves through these states:
+
+```text
+None → Open → Filled                      settled normally
+       Open → Claimed → Cancelled         cancelled after the deadline
+       Open / Claimed → Disputed → Filled      evidence ended the dispute: the trade settles
+       Open / Claimed → Disputed → Resolved    a ruling, or no ruling by the deadline
+```
+
+The two ways out of `Disputed` differ on purpose. The evidence path runs the real settlement and ends in `Filled`.
+A ruling, or the no-ruling default, publishes no proof and ends in `Resolved`.
+
+## Who can file, and when
+
+Only the trade's two parties, the Maker and the Bridger, can file. They
+file on the ad chain (`AdManager.dispute`), while the trade is locked or a
+cancel has started, and before the cancel window ends.
+
+Filing does three things: it posts a **bond**, records the filer's
+**evidence**, and stops the cancel from completing while the dispute is
+open. It pays nobody and decides nothing.
+
+The other party can answer once (`respondToDispute`), with their own
+evidence, before the challenge deadline.
+
+## The bond
+
+The bond is a flat amount in the chain's wrapped native token, the same
+for every order on the route. On soak it's 0.001 WETH on Sepolia and 1
+XLM on Stellar.
+
+## Evidence
+
+Evidence is a set of files uploaded to the evidence store. The filing
+records the hash of its manifest on-chain, so the evidence can't be
+changed after filing.
+
+**Evidence that the trade settled always wins.** A co-signed payout, or a
+proof that the trade settled on the other chain, ends a dispute as
+settled at any time while it's open. A dispute can delay a settlement only
+until someone presents that proof.
+
+The co-signed payout counts as evidence too. It goes through on a disputed trade and closes the dispute in the same
+transaction, so a bond can't hold a fully signed trade hostage, not even for one round.
+
+## Rulings
+
+When there's no proof of settlement, the **arbiter service** rules. It
+can rule one of three outcomes: **mutual refund**, **bridger forfeit** or
+**maker forfeit**. It can't rule that the trade settles; only evidence can
+do that.
+
+A ruling doesn't pay out at once. It opens a short window in which proof
+of settlement still overrides it. After that, anyone can finalize the
+dispute (`finalizeDispute`), and the ruling applies.
+
+If no ruling arrives by the challenge deadline, the dispute ends as a
+**mutual refund**. Nothing waits on the arbiter service showing up.
+
+The challenge deadline is the later of the filing time plus the challenge
+period (1 hour on soak) and the end of the order's cancel window.
+
+## The four outcomes
+
+| Outcome | How it arises | The Maker | The Bridger |
+| --- | --- | --- | --- |
+| Trade settles | evidence only | receives the Bridger's deposit | receives the payout, less the fee |
+| Mutual refund | a ruling, or no ruling by the deadline | the lock returns to the ad | the deposit is refunded |
+| Bridger forfeit | a ruling | the lock returns to the ad, and the Maker also receives the Bridger's deposit | nothing |
+| Maker forfeit | a ruling | loses the locked amount | receives the locked amount less the protocol fee, and the deposit is refunded |
+
+The ad chain records each outcome as a leaf the order chain acts on: a
+settled leaf, a cancel leaf for a mutual refund or maker forfeit, or a
+forfeit leaf for a bridger forfeit.
+
+## Where the bond goes
+
+The bond returns to the filer when the outcome was on their side:
+
+| How the dispute ends | The bond |
+| --- | --- |
+| Mutual refund | returned to the filer |
+| A forfeit against the party the filer accused | returned to the filer |
+| A forfeit against the filer | to the protocol fee pool |
+| Evidence shows the trade settles | to the protocol fee pool, since the trade was provably fine |
+
+One exception: a Bridger who filed because the Maker blocked a co-signed
+payout gets the bond back even if the trade then settles.
+
+## The nullifier
+
+When evidence ends a dispute, the real payout runs and uses up its nullifier, as in a normal settlement. A ruling
+publishes no proof, so there is no nullifier to use up. The final `Resolved` status is what stops the trade from
+being settled again.
+
+## How it's tested
+
+The two chains implement disputes separately, in Solidity and in Soroban. One shared set of scenarios runs on both,
+and each scenario names the result it expects: the final status, the leaf the ad chain writes, and where the bond
+goes. If the two chains ever disagreed on any of these, a named test would fail; it wouldn't wait to show up on a
+live trade. The end-to-end suites also run disputes on local chains, including a ruling overridden by evidence.
+
+## What the relayer does
+
+The relayer has no dispute authority. When a dispute is filed, it first
+checks whether the trade settled on the other chain, and if so presents
+that proof. Otherwise it prepares a case file for the arbiter service.
+Its only writes are the permissionless calls anyone could send, such as
+`finalizeDispute` and `presentSettled`.

@@ -1,0 +1,43 @@
+---
+title: "Root anchors"
+description: "How one chain learns the other chain's Merkle root when no co-signature exists"
+---
+
+A normal payout carries both chains' Merkle roots inside the parties'
+[co-signature](/v3/concepts/co-signing), so the roots are vouched for by
+the two traders. Some paths have no co-signature: a cancel, a forfeit,
+recording that a trade settled. For those, each chain needs another way to
+know the other chain's root. That's what the `RootAnchor` contract holds.
+
+## What an anchor is
+
+The **anchor service** reads each chain's latest finalized MMR root and
+publishes it to the `RootAnchor` contract on the other chain. A published
+root becomes usable only after the route's **anchor delay**: 5 minutes on
+soak. The delay gives time to spot and revoke a wrong anchor before any
+contract relies on it.
+
+## What uses anchors
+
+| Path | Proves | Against |
+| --- | --- | --- |
+| Refund after a cancel | the cancel leaf on the ad chain | an anchored ad-chain root |
+| Paying the Maker after a bridger forfeit | the forfeit leaf on the ad chain | an anchored ad-chain root |
+| Cancelling a never-locked order | the Bridger's deposit on the order chain | an anchored order-chain root |
+| Recording that the other side settled | the settled leaf | an anchored root of the other chain |
+
+Normal settlement never uses an anchor.
+
+## If the anchor service is unavailable
+
+Settlement carries on as normal. The paths in the table wait: if the
+anchor service is unavailable, refunds on the order chain wait until it
+returns, because the order chain has no clock of its own and only follows
+the ad chain's proven outcome.
+
+## Checking an anchor yourself
+
+An anchored root is the root the source chain's own `MerkleManager`
+reports. You can rebuild it from the chain's events with
+[`proofbridge-mmr`](https://www.npmjs.com/package/proofbridge-mmr) and
+compare.

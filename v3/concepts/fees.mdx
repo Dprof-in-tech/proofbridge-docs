@@ -1,0 +1,49 @@
+---
+title: "Fees"
+description: "The bridge fee: who pays it, who earns it, and when it's charged"
+---
+
+Each trade pays a **bridge fee** in two parts:
+
+| Part | Rate | Goes to |
+| --- | --- | --- |
+| LP fee | 0.3% | the Maker. It stays in the Maker's ad as liquidity. |
+| Protocol fee | 0.2% | the protocol fee pool |
+
+The rates are set per deployment. Each part is capped at 1% by the
+contracts.
+
+## Who pays
+
+The fee comes out of the **Bridger's payout**, on the ad chain. The
+Bridger deposits the full amount and receives the amount less 0.5%. The
+Maker receives the Bridger's full deposit on the order chain, and keeps
+the LP fee in the ad.
+
+The app shows the split before you bridge: what you pay, the fee and what
+you receive.
+
+**Example:** you bridge 100 PB. You deposit 100 PB on the order chain and
+receive 99.5 PB on the ad chain. 0.3 PB stays in the Maker's ad, and 0.2
+PB goes to the fee pool.
+
+Both parts round down, so any rounding dust stays with the Bridger.
+
+## The fee is part of the order
+
+The two rates are fields of the [order](/v3/concepts/order-hashing) both
+parties sign. A trade is always charged exactly the fee it was opened
+with. If the live rates change between the Bridger's deposit and the
+Maker's lock, the lock is refused, and the order is refunded in full once
+its deadline passes.
+
+## When no fee is charged
+
+- **Cancels and refunds:** no fee. The Bridger's deposit comes back in
+  full, and the Maker's lock returns to the ad.
+- **A dispute ruled "mutual refund" or "bridger forfeit":** no fee.
+- **A dispute ruled "maker forfeit":** the Bridger is paid out less the
+  protocol fee only; there is no LP fee, since the Maker forfeited.
+
+See [Cancels and refunds](/v3/concepts/cancels-and-refunds) and
+[Disputes](/v3/concepts/disputes).
