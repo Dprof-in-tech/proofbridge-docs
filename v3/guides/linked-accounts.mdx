@@ -1,0 +1,50 @@
+---
+title: "Linked accounts"
+description: "Create or link an agent account on the Accounts page"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+An [agent account](/v3/concepts/agents) is a contract account your wallet
+owns. It holds your ad so an agent can lock orders on it, but it never
+holds funds. You manage them on the **Accounts** page.
+
+## Create an agent account
+
+<Steps>
+  <Step title="Sign in on the network">
+    Sign in with a wallet on that network first. It becomes the account's
+    owner.
+  </Step>
+  <Step title="Create and link">
+    Under **Create an agent account**, choose the network and click
+    **Create and link**. Your wallet deploys the account and links it to
+    you.
+  </Step>
+  <Step title="Allow it as a maker">
+    Your wallet stays the settlement signer for the account's ads. Go to
+    **BLS Keys → Maker approvals** and allow the account, so its ads can
+    use your key.
+  </Step>
+</Steps>
+
+{/* SCREENSHOT: Accounts page, Create an agent account with network selected */}
+<Screenshot caption="Creating an agent account" />
+
+## Link an existing account
+
+Under **Link an existing account**, sign in with the wallet that owns the
+account, enter the account address (`0x…` on Ethereum, `C…` on Stellar)
+and click **Link**. The relayer checks on-chain that your wallet is the
+owner.
+
+## Unlink
+
+**Unlink** removes the account from your view. Its ads stay on-chain, but
+you can't act on them in the app until you link it again.
+
+## Use it
+
+When you [create an ad](/v3/guides/provide-liquidity), choose the account
+under **Make the ad from**. The liquidity comes from your wallet and goes
+straight into the escrow through the account.

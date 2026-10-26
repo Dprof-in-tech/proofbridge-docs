@@ -1,0 +1,90 @@
+---
+title: "Hosted pods"
+description: "Request a pod that locks orders on your ad, and take it from request to live"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+A **hosted pod** is an agent that ProofBridge runs for you. Hosted pods
+run on infrastructure ProofBridge operates, and each request needs a
+ProofBridge operator's approval before anything runs. The pod creates its
+own agent key inside the pod; only the public half leaves it. The key is
+limited by the on-chain policy you set.
+
+You need an active ad to request a pod.
+
+## The steps
+
+```
+Request → Pod → Ad → Policy → Key → Emergency stop → Live
+```
+
+The setup page follows your pod through each step and updates on its own.
+
+<Steps>
+  <Step title="Request">
+    On **My Agents → New Agent**, choose **Hosted pod**. Enter the agent
+    name, a contact email, the chains the pod's key is registered on, and
+    the RPC endpoints. Choose whether the endpoints are **Kept with the
+    pod** (stored encrypted, restored after a server loss) or **Held by
+    you** (never stored; you re-enter them after a server loss). **Use
+    public endpoint** fills in a public one. No wallet signature is
+    needed.
+  </Step>
+  <Step title="Under review">
+    An operator reviews the request, usually within a day. If the pod
+    server is full, the request joins the waiting line. If it's declined,
+    you see the operator's note and can **Request again**.
+  </Step>
+  <Step title="Starting your pod">
+    Once approved, the pod starts. This takes a few minutes. If it fails
+    to start, **Try again** redeploys the approved request.
+  </Step>
+  <Step title="Choose an Ad">
+    Pick the ad the pod trades for and click **Assign this Ad**. The ad
+    must be held by your [agent account](/v3/guides/linked-accounts); if
+    it isn't, the page shows how to open the same ad from the account.
+  </Step>
+  <Step title="Set the Agent's Policy">
+    Set the most per order, the most per day, and how long it lasts. Your
+    wallet writes the policy on your agent account.
+  </Step>
+  <Step title="Approve Key Registration">
+    Sign once to register the pod's key under your ad's settlement
+    identity.
+  </Step>
+  <Step title="Sign Emergency Stop">
+    Sign the pod key's emergency stop, so the key can be switched off even
+    if ProofBridge is down. If your own key is on the same identity, sign
+    one for it too.
+  </Step>
+  <Step title="Fund your agent">
+    The pod pays the network fee for every lock from its own accounts on
+    each chain. Top them up from the page; on Stellar, **Fund with
+    Friendbot** creates the account on testnet. ProofBridge emails your
+    contact address if a balance runs low.
+  </Step>
+  <Step title="Go Live">
+    When the pod, key, ad and emergency stop are ready, click **Go Live**.
+    The pod starts locking within its policy.
+  </Step>
+</Steps>
+
+{/* SCREENSHOT: pod setup page, step progress at Key, Approve Key Registration */}
+<Screenshot caption="Pod setup: each step in turn" />
+
+{/* SCREENSHOT: pod setup page, Ready to go live */}
+<Screenshot caption="Ready to go live" />
+
+## Limits
+
+- Only makers can request a pod: you need an active ad, from your wallet
+  or a linked account.
+- Each maker can run a limited number of pods (two by default).
+
+## Removing a pod
+
+**Delete pod** stops and removes it; its data goes. Its key stays
+registered until you retire it. To end both at once, use **Kill Agent →
+Retire the pod**: the key is retired on every chain, then the pod is
+deleted.
