@@ -68,6 +68,24 @@
                 ]
               },
               {
+                "group": "Guides",
+                "pages": [
+                  "v3/guides/connect-wallet",
+                  "v3/guides/faucet",
+                  "v3/guides/register-a-settlement-key",
+                  "v3/guides/bridge-tokens",
+                  "v3/guides/provide-liquidity",
+                  "v3/guides/manage-ads",
+                  "v3/guides/track-orders",
+                  "v3/guides/cancel-or-get-a-refund",
+                  "v3/guides/file-a-dispute",
+                  "v3/guides/linked-accounts",
+                  "v3/guides/set-up-an-agent",
+                  "v3/guides/hosted-pods",
+                  "v3/guides/network-dashboard"
+                ]
+              },
+              {
                 "group": "Reference",
                 "pages": [
                   "v3/reference/smart-contracts"
