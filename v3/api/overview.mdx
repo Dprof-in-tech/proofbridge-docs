@@ -1,0 +1,283 @@
+---
+title: "API overview"
+description: "Base URL, auth header, errors, rate limits, pagination and value formats shared by every relayer endpoint"
+---
+
+import Environments from "/snippets/environments.mdx";
+
+The relayer API is how a wallet app, a bot or an agent talks to ProofBridge: it lists chains and
+routes, records ads and trades, hands back the transaction data each wallet signs, and collects the
+co-signatures that settle a trade. The rules on this page hold for every endpoint in the reference.
+
+## Base URL
+
+The base URL depends on the environment:
+
+<Environments />
+
+Every endpoint lives under `/v1/`, for example `GET https://api-staging.pfbridge.xyz/v1/routes`. The
+only routes outside `/v1/` are the [health routes](#health-routes). `/v1` is part of each path; there
+is no separate version header.
+
+The relayer also serves its generated OpenAPI pages: the Swagger UI at `/docs` and the JSON
+document at `/openapi.json`. Some response types there are loose. Where they differ from this
+reference, this reference is right.
+
+CORS allows only the official app's origin, so a page served from any other origin is refused by the
+browser. Server-side clients are not affected.
+
+Request bodies are JSON, up to 5 MiB. A larger body gets `413`; a body that is not valid JSON gets
+`400`.
+
+## Auth header
+
+Send the access token on every route marked `user`:
+
+```http
+Authorization: Bearer <access token>
+```
+
+You get tokens by signing a challenge with your wallet; see [Authentication](/v3/api/authentication).
+There are two token types:
+
+| Token | Lifetime | Good for |
+| --- | --- | --- |
+| access | 15 minutes | the `Authorization` header on every `user` route |
+| refresh | 14 days from its last use, never past 30 days from sign-in | only `POST /v1/auth/refresh` and `POST /v1/auth/logout`; each one works once |
+
+A guarded route refuses a bad token before it does anything else:
+
+| Status | Message | When |
+| --- | --- | --- |
+| `401` | `Missing bearer token` | no `Bearer` header |
+| `401` | `Invalid or expired token` | bad signature, or the token expired |
+| `401` | `An access token is required` | you sent a refresh token |
+| `403` | `User access required` | the token's user no longer exists |
+
+On a `401`, refresh once and retry. If the refresh is refused too, sign in again.
+
+## Errors
+
+Every error has the same envelope:
+
+```json
+{
+  "statusCode": 400,
+  "message": "chainKind must be one of the following values: EVM, STELLAR", // the sentence to show
+  "field": "chainKind",            // validation errors only: the first refused field
+  "issues": [                      // validation errors only: every refused field
+    { "field": "chainKind", "message": "chainKind must be one of the following values: EVM, STELLAR" },
+    { "field": "nickname", "message": "property nickname should not exist" }
+  ],
+  "timestamp": "2026-10-04T09:12:44.512Z"
+}
+```
+
+- **`error`** is a machine code, present on coded refusals such as `refresh-reused`,
+  `claim-in-flight` or `route-retired`. When it is there, branch on it. Some codes add extra keys
+  (a `claimId`, a `limit`); each endpoint page lists them.
+- **`field`** and **`issues`** appear only on a validation `400`. `field` is a dotted path, for
+  example `auth.sig` or `attachments.0.sha256`.
+- **Unknown keys are refused.** A body or query with a key the endpoint does not take answers `400`
+  `property <key> should not exist`.
+- **Path ids.** A path id that should be a UUID and is not answers `400`
+  `Validation failed (uuid is expected)`.
+- **5xx.** A `503` keeps its message (it usually means "retry"). Any other `5xx` answers
+  `Internal server error`; show a generic "try again" message.
+
+## Rate limits
+
+Limits are counted per route, in a 60-second window. Ten calls to one route do not use up another
+route's allowance.
+
+| Tier | Limit | Keyed by | Used on |
+| --- | --- | --- | --- |
+| default | 120 per 60 s | the signed-in user, or the client IP when there is no valid token | every route not listed below |
+| strict | 10 per 60 s | the client IP, even with a valid token | sign-in challenge, login and link, `POST /v1/trades/create`, `POST /v1/faucet/request`, `POST /v1/pods`, the public settlement leg package, the cancel package, evidence file uploads |
+| strict per session | 10 per 60 s | the refresh token's session | `POST /v1/auth/refresh`, `POST /v1/auth/logout` |
+| strict per user | 10 per 60 s | the signed-in user | pod RPC updates and go-live |
+| hourly | 10 reports or 30 uploads per hour | the client IP | the [feedback](/v3/api/feedback) routes |
+| none | | | the health routes |
+
+Over the limit you get `429` with the message `ThrottlerException: Too Many Requests`, and the key
+stays blocked for one full window. The relayer does not expose `Retry-After` or `X-RateLimit-*` to
+browser code, so back off for 60 seconds instead of reading a header.
+
+## Pagination
+
+Paged lists use a cursor. Pass the previous answer's `nextCursor` as the `cursor` query parameter;
+`nextCursor: null` means you have the last page.
+
+```json
+{
+  "data": [ /* rows */ ],
+  "nextCursor": "2f3a4b5c-6d7e-4f80-9a1b-2c3d4e5f6a7b"
+}
+```
+
+- `limit` is 1 to 100, default 25 (notifications default to 20).
+- Most lists answer `{ data, nextCursor }`. Notifications answer `{ items, nextCursor }`. Read the
+  key each endpoint page names.
+- The cursor is a row id. Lists ordered by id are not in creation order, so sort them yourself
+  before showing them as "newest first".
+- Some lists come back whole, unpaged: `GET /v1/pods` and `GET /v1/accounts`.
+
+## Value formats
+
+| Value | Form |
+| --- | --- |
+| relayer ids (ad, trade, token, route, user, notification) | UUID string |
+| chain id | decimal **string**, for example `"11155111"` (Sepolia) or `"1000002"` (Stellar). Never a JSON number |
+| EVM address | `0x` + 40 hex, returned EIP-55 checksummed. Any case is accepted on input |
+| Stellar account or contract | returned as `0x` + 64 lowercase hex (the strkey's 32-byte payload). `G…` and `C…` strkeys are accepted where an endpoint says so; convert back to a strkey for display |
+| cross-chain bytes32 field | `0x` + 64 hex; an EVM address is left-padded with zeros |
+| token amount | decimal string in the token's smallest unit, digits only. Format it with the token's `decimals` |
+| database times (`createdAt`, `updatedAt`, `expiresAt`) | ISO 8601 string |
+| chain-side times (`deadline`, `claimFinalizeAt`, `disputeFinalizeAt`, `disputeChallengeDeadline`) | unix seconds as a decimal string |
+| settlement `updatedAt` and co-signature `receivedAt` | epoch milliseconds as a JSON number |
+
+## Polling or the socket
+
+The relayer pushes two kinds of event over one socket.io connection, on the namespace
+`/notifications` at the base URL:
+
+```javascript
+import { io } from "socket.io-client";
+
+const socket = io(`${API_URL}/notifications`, { auth: { token: accessToken } });
+socket.on("notification", (n) => { /* a stored notification row */ });
+socket.on("trade:status", (s) => { /* a settlement status for one of your trades */ });
+```
+
+The server disconnects the socket when the access token expires (reason `io server disconnect`) and
+socket.io does not reconnect on its own after that. Refresh the token and call `connect()` again.
+The socket is a hint, not the record: after a reconnect, re-read your screen's data over HTTP.
+[Notifications](/v3/api/notifications) has the event list.
+
+Everything else you poll. The relayer watches the chains on its own loop, so polling it faster than
+these intervals gains nothing:
+
+| What | Poll | Interval |
+| --- | --- | --- |
+| a trade after the wallet sent a transaction | `GET /v1/trades/:id` | 5 to 10 s, until the status moves |
+| settlement progress | `GET /v1/trades/:id/settlement` | 10 s, or on each `trade:status` event |
+| an unfunded reservation, or a claimed or disputed trade | `GET /v1/trades/:id` | 60 s |
+| an ad after fund, withdraw or update | `GET /v1/ads/:id` | 10 s, then 60 s |
+| key registration | `GET /v1/keys/:account` | 15 to 30 s |
+| a faucet claim | `GET /v1/faucet/claims/:id` | 2 to 5 s |
+| the unread badge | `GET /v1/notifications/unread-count` | on load, then 60 s if the socket is down |
+
+All of these together stay well under the default 120 calls a minute.
+
+## Health routes
+
+These three routes sit outside `/v1/`, need no auth and are not rate limited. They are for status
+pages and load balancers; a wallet app does not need them.
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /` | none | a fixed welcome message |
+| `GET /health` | none | liveness, database, Redis and background-loop health |
+| `GET /readyz` | none | whether this instance can serve proofs right now |
+
+### `GET /`
+
+```json
+{ "message": "Welcome to ProofBridge" }
+```
+
+### `GET /health`
+
+Answers `200` while the database answers, and `503` with the same body when it does not. A dead
+Redis or a stale background loop only sets `status` to `degraded`; the call still answers `200`.
+
+```json
+{
+  "status": "degraded",            // "ok" or "degraded"
+  "roles": ["api", "worker", "prover"],
+  "worker": "running",             // with the worker role: "running" or "standby"
+  "uptimeSec": 86412,
+  "timestamp": "2026-10-04T08:00:00.000Z",
+  "checks": { "liveness": "ok", "db": "ok", "redis": "ok", "loops": "stale" },
+  "loops": [
+    { "name": "janitor", "intervalMs": 60000, "ageMs": 241877, "stale": true },
+    { "name": "tree-registry", "intervalMs": 5000, "ageMs": 3120, "stale": false }
+  ],
+  "staleLoops": ["janitor"]
+}
+```
+
+A loop is stale when its last successful run is older than three times its own interval.
+
+### `GET /readyz`
+
+On an instance that builds proofs, `ready` is `true` only when at least one chain is tracked and
+every chain's local copy of the [Merkle Mountain Range](/v3/concepts/merkle-mountain-range) has
+caught up with the chain's finalized head. The status is `200` when ready and `503` otherwise; the
+body is returned either way.
+
+```json
+{
+  "ready": true,
+  "chains": [
+    { "chainId": "11155111", "status": "ready", "lag": 0, "width": 412, "root": "0x1d3c…2c2d" },
+    { "chainId": "1000002", "status": "ready", "lag": 0, "width": 389, "root": "0x2e4f…2e4f" }
+  ]
+}
+```
+
+| `status` | Meaning |
+| --- | --- |
+| `ready` | the local tree matches the chain |
+| `syncing` | the local tree is behind by `lag` leaves |
+| `diverged` | the widths match but the roots differ; the relayer rebuilds the tree |
+
+An instance that does not build proofs answers whether its database and Redis are up instead, with
+`chains: []` and a `checks` object (`db`, `redis`).
+
+## Endpoint groups
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/v3/api/authentication">
+    Sign in with SIWE or SEP-10, refresh, log out and link a second wallet.
+  </Card>
+  <Card title="Chains and routes" icon="route" href="/v3/api/chains-and-routes">
+    The chains, tokens and trade routes the relayer serves, with each route's clocks.
+  </Card>
+  <Card title="Ads" icon="rectangle-ad" href="/v3/api/ads">
+    Create, fund, withdraw from, update and close liquidity ads.
+  </Card>
+  <Card title="Trades" icon="arrow-right-arrow-left" href="/v3/api/trades">
+    Reserve liquidity, get the order and lock data, and confirm deposits.
+  </Card>
+  <Card title="Settlement" icon="signature" href="/v3/api/settlement">
+    Upload co-signatures and follow a trade to settlement.
+  </Card>
+  <Card title="Keys" icon="key-skeleton" href="/v3/api/keys">
+    Register, retire and revoke settlement keys.
+  </Card>
+  <Card title="Cancels" icon="ban" href="/v3/api/cancels">
+    The self-serve endings for a trade that did not settle.
+  </Card>
+  <Card title="Disputes" icon="scale-balanced" href="/v3/api/disputes">
+    Evidence uploads and the dispute case file.
+  </Card>
+  <Card title="Accounts" icon="wallet" href="/v3/api/accounts">
+    Your wallets and linked smart accounts.
+  </Card>
+  <Card title="Pods" icon="server" href="/v3/api/pods">
+    Request and manage a hosted maker pod.
+  </Card>
+  <Card title="Notifications" icon="bell" href="/v3/api/notifications">
+    The notification list, the unread count and the socket.
+  </Card>
+  <Card title="Faucet" icon="faucet" href="/v3/api/faucet">
+    Test tokens on test networks.
+  </Card>
+  <Card title="Stats" icon="chart-line" href="/v3/api/stats">
+    Network numbers, anchor freshness and an account's track record.
+  </Card>
+  <Card title="Feedback" icon="comment" href="/v3/api/feedback">
+    Send a report and attach files.
+  </Card>
+</CardGroup>
