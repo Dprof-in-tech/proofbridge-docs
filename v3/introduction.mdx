@@ -1,0 +1,76 @@
+---
+title: "Introduction"
+description: "ProofBridge v3: peer-to-peer bridging settled by both traders' signatures and zero-knowledge proofs, with refunds and disputes built in"
+---
+
+import Environments from "/snippets/environments.mdx";
+
+ProofBridge is a peer-to-peer cross-chain bridge. Two counterparties trade
+directly, a **maker** (liquidity provider) and a **bridger**, and each
+side's funds are escrowed in a contract on its own chain. Today it runs
+between Ethereum and Stellar.
+
+Three things decide every trade:
+
+- **The two traders authorize it.** Both parties sign the settlement with
+  their BLS settlement keys. The contracts on each chain check the
+  combined signature against an on-chain key registry. No trade needs
+  ProofBridge's permission.
+- **Deposits are proven, not trusted.** A payout on one chain carries a
+  zero-knowledge proof that the other side's deposit really is recorded on
+  the other chain. The destination chain can't read the source chain; the
+  proof carries that fact across.
+- **Every trade has an ending.** Each order has a deadline. If a trade
+  doesn't settle by then, it can be cancelled and the deposit refunded, or
+  either party can file a dispute. These paths are part of the contracts,
+  not a support process.
+
+The relayer coordinates: it collects the two signatures, builds the
+proofs and submits the payouts. It holds no funds and grants no
+approvals. The data it submits is public, so anyone can submit the same
+transactions.
+
+<Note>
+You're reading the **v3** docs: the protocol as it runs on soak, after
+the second build tranche. The earlier designs are in the version picker
+under **v2** and **v1 (pre-BLS)**.
+</Note>
+
+<Environments />
+
+## What you can do
+
+<CardGroup cols={2}>
+  <Card title="Bridge assets" icon="arrow-right-arrow-left" href="/v3/quickstart">
+    Move tokens from one chain to another. Connect a wallet, register your
+    settlement key once, and trade. No sign-up, no KYC.
+  </Card>
+  <Card title="Provide liquidity" icon="droplet" href="/v3/concepts/liquidity-ads">
+    Post a liquidity ad and earn a fee on every trade against it. Serve
+    trades yourself, or let an agent lock orders for you within limits you
+    set.
+  </Card>
+</CardGroup>
+
+## What's new in v3
+
+- **Fees:** 0.3% to the maker and 0.2% to the protocol on each trade
+  ([Fees](/v3/concepts/fees)).
+- **Deadlines, cancels and refunds:** every order ends, one way or
+  another ([Deadlines and clocks](/v3/concepts/deadlines-and-clocks),
+  [Cancels and refunds](/v3/concepts/cancels-and-refunds)).
+- **Disputes:** either party can file, with evidence
+  ([Disputes](/v3/concepts/disputes)).
+- **Your own trade secret:** each party derives its half of the secret
+  that unlocks its payout ([Trade secrets](/v3/concepts/trade-secrets)).
+- **Agents:** an agent can lock orders on your ads, within an on-chain
+  policy you set ([Agents](/v3/concepts/agents)).
+
+## Where to go next
+
+- [How it works](/v3/how-it-works): the full trade lifecycle in one page
+- [Quickstart](/v3/quickstart): bridge your first tokens
+- [Settlement keys](/v3/concepts/settlement-keys): the key every trading
+  wallet registers once
+- [Smart contracts](/v3/reference/smart-contracts): addresses on mainnet
+  and soak
