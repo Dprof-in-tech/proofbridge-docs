@@ -9,17 +9,38 @@ Work through this once. Each step links the full guide if you get stuck.
 
 <CardGroup cols={2}>
   <Card title="Ethereum Sepolia" icon="/logos/ethereum.svg">
-    MetaMask, Rainbow or another browser wallet on desktop. On a phone, use WalletConnect.
+    MetaMask, Rainbow or another browser wallet on desktop. Works on a phone too, through
+    WalletConnect or your wallet's own browser.
   </Card>
   <Card title="Stellar Testnet" icon="/logos/stellar.svg">
-    Freighter, xBull, Lobstr or Hana on desktop. On a phone, use xBull or WalletConnect.
+    Freighter, Lobstr, xBull or Hana — **desktop only**. See the note below.
   </Card>
 </CardGroup>
 
+<Warning>
+  **Stellar wallets do not work on a phone yet.** None of them can produce the message
+  signature a settlement key needs: Lobstr pairs over WalletConnect but its session does not
+  permit message signing, and xBull's phone option opens a separate web wallet rather than the
+  xBull app.
+
+  You can still test on a phone — just use your **Ethereum wallet** there. Sign in on Sepolia,
+  register your settlement key, and type your Stellar address when you bridge, so no Stellar
+  wallet is needed to be paid. Anything that signs on the Stellar side — posting an ad, or
+  trading from a Stellar wallet — needs a desktop browser.
+</Warning>
+
 Switch each wallet to its testnet: **Sepolia** in your EVM wallet, **Testnet** in your Stellar wallet.
 
-Open the app from the **Soak** tab on [The soak](/v3/soak) page, click **Connect Wallet**, and sign in on each
+Open [staging.pfbridge.xyz](https://staging.pfbridge.xyz), click **Connect Wallet**, and sign in on each
 network. Connecting the second wallet links it to the same account. [Connect a wallet](/v3/guides/connect-wallet).
+
+<Frame caption="Connect Wallet — pick a network, then sign in">
+  <img src="/images/v3/soak-01-connect-hub.png" alt="The wallet hub listing Ethereum and Stellar, each with a Connect button" />
+</Frame>
+
+<Frame caption="Both networks signed in and linked to one account">
+  <img src="/images/v3/soak-02-signed-in.png" alt="The wallet hub showing both networks signed in, each with its address" />
+</Frame>
 
 ## 2. Test funds
 
@@ -31,11 +52,26 @@ network. Connecting the second wallet links it to the same account. [Connect a w
 
 [Get test tokens](/v3/guides/faucet).
 
+<Frame caption="The in-app Faucet — one claim per token">
+  <img src="/images/v3/soak-03-faucet.png" alt="The Faucet page listing the bridge tokens with a claim button for each" />
+</Frame>
+
 ## 3. Your settlement key
 
 Every wallet you trade from needs a settlement key, registered once. On the **BLS Keys** page, click **Register**,
-sign the derivation message, then sign the registration. The relayer pays the gas. Do this for each wallet.
+sign the derivation message, then sign the registration. The relayer pays the gas.
 [Register a settlement key](/v3/guides/register-a-settlement-key).
+
+<Frame caption="Pick the wallet to generate the key from, then sign twice">
+  <img src="/images/v3/soak-04-register-key.png" alt="The BLS Signing Key dialog with Ethereum Sepolia and Stellar Testnet to choose between, and a Generate Key button" />
+</Frame>
+
+One wallet at a time. After the first, the counters read **01 ready, 01 needs registration** —
+that second one is your other wallet, so repeat for it.
+
+<Frame caption="First key done. The other wallet still says Not Registered">
+  <img src="/images/v3/soak-05-first-key-done.png" alt="Registration Complete dialog, with one address Registered and the other still Not Registered behind it" />
+</Frame>
 
 While you're there, **file an emergency stop** for your key: it's part of what we're testing.
 
@@ -45,5 +81,9 @@ While you're there, **file an emergency stop** for your key: it's part of what w
 - [ ] Sepolia ETH and testnet XLM in the wallets
 - [ ] Bridge tokens from the faucet
 - [ ] **BLS Keys** shows **Registered** for each wallet
+
+<Frame caption="Both wallets registered — 02 ready, 00 needing registration">
+  <img src="/images/v3/soak-06-all-keys-registered.png" alt="The BLS Keys page with both addresses showing Registered and the ready counter at 02" />
+</Frame>
 
 Then go to [What to test](/v3/soak/what-to-test).

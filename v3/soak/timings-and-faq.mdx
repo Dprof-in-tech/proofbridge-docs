@@ -36,8 +36,15 @@ The deadline and windows are set short on soak, so you can test every ending in 
     It refuses if you already hold 10,000 or more of that token, or a claim for it is still running.
   </Accordion>
   <Accordion title="Which wallet should I use on my phone?">
-    xBull or WalletConnect for Stellar, and WalletConnect for Ethereum. Freighter, Lobstr and Hana's browser versions
-    are desktop extensions.
+    An **Ethereum** one — MetaMask or another WalletConnect wallet, or your wallet's own browser. That side works
+    on a phone.
+
+    **Stellar wallets do not.** None can produce the message signature a settlement key needs: Lobstr pairs over
+    WalletConnect but its session does not permit message signing, and xBull's phone option opens a separate web
+    wallet instead of the xBull app. Freighter, Lobstr and Hana's browser versions are desktop extensions.
+
+    You can still bridge from a phone with only an Ethereum wallet — type your Stellar address as the destination
+    and nothing needs signing on that side.
   </Accordion>
   <Accordion title="Do I need both wallets?">
     To bridge, you need only the wallet you send from. To try every mission, and to receive on the other chain at

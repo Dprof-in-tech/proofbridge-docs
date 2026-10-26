@@ -3,8 +3,6 @@ title: "The soak"
 description: "What the soak is, what you'll be testing, and where to start"
 ---
 
-import Environments from "/snippets/environments.mdx";
-
 The **soak** is ProofBridge running end to end on public testnets, before mainnet. Every part is live: the contracts
 on Ethereum Sepolia and Stellar Testnet, the relayer, the app, agents and hosted pods. Real people trading with test
 tokens is how we find what breaks, what confuses, and what's slow, while nothing of value is at stake.
@@ -17,9 +15,20 @@ what you find.
 GMT+1**.
 </Info>
 
-<Environments />
+<Card title="Open the soak app" icon="flask" href="https://staging.pfbridge.xyz">
+  **staging.pfbridge.xyz** — Ethereum Sepolia and Stellar Testnet, test tokens only.
+</Card>
 
-Use the **Soak** tab above for every link. Soak tokens have no value; never send real assets to a soak address.
+| | URL |
+| --- | --- |
+| App | [staging.pfbridge.xyz](https://staging.pfbridge.xyz) |
+| API | `https://api-staging.pfbridge.xyz` |
+
+<Warning>
+  Every link in the soak pages goes to **staging**, not `app.pfbridge.xyz`. Mainnet isn't live
+  yet, and the two deployments are separate — soak tokens have no value, and real assets sent to
+  a soak address are gone. See [Environments](/v3/environments).
+</Warning>
 
 ## Your path
 
@@ -43,7 +52,9 @@ Use the **Soak** tab above for every link. Soak tokens have no value; never send
   it's cancelled and refunded. See [Timings and FAQ](/v3/soak/timings-and-faq).
 - **You'll want two wallets** for the full picture: one on Sepolia and one on Stellar. Bridging needs only the
   wallet you send from.
-- **Test on a phone too.** Mobile wallets and layouts are part of what we're checking.
+- **Test on a phone too** — with an **Ethereum** wallet. Layouts and mobile wallet connections are part of what
+  we're checking. Stellar wallets don't work on a phone yet; [Get set up](/v3/soak/get-set-up) explains what still
+  does.
 
 ## Join the community
 
