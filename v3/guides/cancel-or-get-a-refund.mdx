@@ -1,0 +1,57 @@
+---
+title: "Cancel or get a refund"
+description: "What happens when a trade passes its deadline, and how to finish it yourself"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+If a trade doesn't settle by its deadline, it ends without you doing
+anything: the relayer sends each step for you, and your funds come back.
+No fee is taken. How it works is on
+[Cancels and refunds](/v3/concepts/cancels-and-refunds).
+
+## What you'll see
+
+On the trade page:
+
+1. **Deadline passed:** a cancel can start.
+2. **Cancel claimed:** the cancel window is open. A payout can still land
+   in this window.
+3. **Refund on its way:** the cancel finished on the ad chain; the refund
+   follows on the order chain.
+4. **Cancelled:** done. The Bridger's deposit is back, and the Maker's
+   lock is back in the ad.
+
+## Finish it yourself
+
+You don't have to wait for the relayer. When a step is ready, the trade
+page offers it under **Finish it yourself**:
+
+| Button | What it does |
+| --- | --- |
+| **Claim cancel** | starts the cancel on the ad chain, after the deadline |
+| **Finalize cancel** | finishes it after the cancel window |
+| **Cancel never-locked order** | cancels an order the Maker never locked |
+| **Refund the deposit** | refunds the Bridger on the order chain |
+| **Pay the maker (forfeit)** | pays the Maker on the order chain after a "bridger forfeit" ruling |
+| **Record the settled leg** / **Settle the other leg** | completes a trade where only one side's payout landed |
+
+Each is a transaction from your wallet, and it costs gas only. If a step
+was already sent by someone else, sending it again just fails; the page
+updates on its next read.
+
+{/* SCREENSHOT: trade page, Finish it yourself panel with Claim cancel ready */}
+<Screenshot caption="Finish a cancel yourself" />
+
+## Save the proofs
+
+**Save the proofs for this trade** downloads a file with every proof the
+remaining steps need. Keep it: with it, the proof steps can still be sent
+even if the relayer goes away.
+
+## Funds waiting for you
+
+If a payout couldn't be delivered to your wallet, it's held for you as a
+claimable balance. The trade page shows **Funds waiting for you**; click
+**Claim your refund** to withdraw it. Returned dispute bonds show up here
+too.

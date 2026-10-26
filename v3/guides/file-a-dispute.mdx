@@ -1,0 +1,57 @@
+---
+title: "File a dispute"
+description: "File, answer and follow a dispute from the trade page"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+Either party can file a dispute while the trade is locked or a cancel has
+started, until the cancel window ends. The rules are on
+[Disputes](/v3/concepts/disputes).
+
+## File
+
+<Steps>
+  <Step title="File Dispute">
+    On the trade page, click **File Dispute**. Connect the wallet that is
+    a party to this trade.
+  </Step>
+  <Step title="Bond">
+    The page shows the **Bond Amount** and when it's returned or
+    forfeited. You get it back if the dispute ends without finding you at
+    fault. You can lose it if the arbiter service finds you at fault, or
+    if on-chain proof shows the trade had already settled.
+  </Step>
+  <Step title="Describe the Dispute">
+    Under **What happened?**, describe the problem, and add **Supporting
+    Files**. The files are uploaded to the evidence store, and their
+    fingerprint goes on-chain with the filing.
+  </Step>
+  <Step title="File this dispute?">
+    Review, then approve the bond and file. Two wallet steps: the bond
+    approval, then the filing.
+  </Step>
+</Steps>
+
+{/* SCREENSHOT: File a Dispute flow at the Bond step, bond amount and return rules visible */}
+<Screenshot caption="Filing a dispute: the bond" />
+
+Once filed, the trade shows **Disputed**, and the page shows the challenge
+deadline and the outcome as they arrive.
+
+## Answer
+
+If the other party filed, you can answer **once**, before the challenge
+closes. Click **View Dispute**, then **Answer Dispute**, and add your
+description and files the same way.
+
+## The outcome
+
+The arbiter service rules, or, with no ruling by the challenge deadline,
+the dispute ends as a mutual refund. After the ruling's window,
+**Finalize dispute** applies the outcome on the ad chain; the other chain
+pays out once the result is proven there. The relayer normally sends this
+for you.
+
+If your bond is returned, it appears under **Funds waiting for you** on
+the trade page.
