@@ -1,0 +1,51 @@
+---
+title: "Merkle Mountain Range"
+sidebarTitle: "Merkle Mountain Range"
+description: "The append-only record of every trade event on each chain"
+---
+
+Every trade event on a chain is appended as a leaf to that chain's
+**Merkle Mountain Range (MMR)**, an append-only tree kept by the
+`MerkleManager` contract. Its root commits to every leaf ever added, and
+every cross-chain proof is built against it. Only the escrow contracts
+can append. The fundamentals are unchanged from v1 (append-only,
+Poseidon2-hashed); this page covers what v3 records.
+
+## Leaves with a domain
+
+A leaf commits to the order hash and a **domain**, the kind of event:
+
+```
+leaf = poseidon2(field_mod(orderHash), domain)
+```
+
+v2 recorded deposits only. v3 also records cancels, settled payouts and
+forfeits, so the other chain can act on how a trade ended. The full list
+is on [Deposit proofs](/v3/concepts/deposit-proofs#one-circuit-several-events).
+The domain says where the leaf is used: a lock on the ad chain is used
+by the payout on the order chain, and a deposit on the order chain by the
+payout on the ad chain. A proof about one event can never be bent to
+serve another.
+
+## Roots are what you co-sign
+
+Both chains' MMR roots are fields of the
+[SettlementAuth](/v3/concepts/co-signing) each party signs. Your
+signature authorizes settlement against a *specific, known* state of both
+trees. The cancel and forfeit paths use roots published by the
+[anchor service](/v3/concepts/root-anchors) instead.
+
+## The relayer's copy is rebuildable
+
+The relayer keeps a local copy of each chain's tree to build proofs
+quickly. The copy is a **projection of on-chain events**, not a source of
+truth: it replays the chains' append events and checks its root against
+the on-chain root at every step. Wiped, it rebuilds from the chains
+alone.
+
+## Build on it
+
+The [`proofbridge-mmr`](https://www.npmjs.com/package/proofbridge-mmr)
+npm package produces byte-identical outputs to the on-chain contracts.
+Use it to rebuild a tree from chain events, generate inclusion proofs
+offline, or check settlement state independently.

@@ -1,0 +1,64 @@
+---
+title: "Deposit proofs"
+description: "How one chain verifies a deposit, or any other trade event, that happened on another"
+---
+
+The destination chain can't read the source chain. What carries the fact
+"the counterparty really deposited" across is a **zero-knowledge proof**.
+
+## The Merkle Mountain Range
+
+Every deposit adds a leaf to that chain's on-chain
+[Merkle Mountain Range (MMR)](/v3/concepts/merkle-mountain-range), an
+append-only tree whose root commits to every event ever recorded there.
+Each leaf binds the trade's order hash and a **leaf domain**: what kind of
+event it records. A proof about one event can't be bent to serve another.
+
+## One circuit, several events
+
+A single circuit, the **events circuit**, proves that a leaf of a given
+domain is in a given root. The contracts always set the domain
+themselves; it's never something the caller picks.
+
+| Domain | Event | Used by |
+| --- | --- | --- |
+| 0 | the Maker's lock (on the ad chain) | the payout to the Maker on the order chain |
+| 1 | the Bridger's deposit (on the order chain) | the payout to the Bridger on the ad chain |
+| 2 | a cancel | the Bridger's refund on the order chain |
+| 3 | a settled payout | recording that the other side settled |
+| 4 | a key registration | registration by proof (not active yet) |
+| 5 | a forfeit | paying the Maker after a "bridger forfeit" ruling |
+
+A deposit proof (domains 0 and 1) also proves knowledge of that payout's
+[half of the trade secret](/v3/concepts/trade-secrets), which fixes its
+nullifier. The other domains carry no secret.
+
+## The proof
+
+At payout time, a proof is built showing the counterparty's deposit leaf
+is in the *other* chain's MMR root, the same root both parties co-signed.
+The contract verifies the proof on-chain, together with the nullifier
+that makes each payout happen exactly once.
+
+The cancel, forfeit and settled proofs are checked against a root
+published by the [anchor service](/v3/concepts/root-anchors) instead,
+because no co-signature exists on those paths.
+
+## Speed
+
+A deposit proof takes **seconds** to build, and a CI benchmark fails the
+build if it regresses. Proofs are built per trade, per chain; you never
+wait on them.
+
+## Verification on both chains
+
+- **Ethereum** verifies with a generated UltraHonk verifier contract.
+- **Soroban** verifies with a reusable verifier that takes the
+  verification key as data.
+
+A full payout on Sepolia, with the BLS co-signature check and the proof,
+costs roughly **2.4M gas**, guarded by a CI gas ceiling.
+
+Together with the combined BLS signature check, this is the whole
+authority of a settlement: *both traders signed, and both deposits
+provably exist.*

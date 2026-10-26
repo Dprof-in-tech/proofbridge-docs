@@ -1,0 +1,101 @@
+---
+title: "The canonical Order tuple and cross-chain digest"
+sidebarTitle: "Order hashing"
+description: "ProofBridge uses a single EIP-712 Order tuple across EVM and Stellar so both chains compute the same digest by construction."
+---
+
+ProofBridge's correctness rests on one small, load-bearing fact: **the
+order digest is the same byte string on EVM and on Stellar**. That is what
+lets a proof and a co-signature bound to an `orderHash` on one chain be
+checked on the other. Both sides hash the exact same struct in the exact
+same way.
+
+## One tuple, two chains
+
+There is a single canonical 19-field `Order` tuple. Each escrow builds it
+from its own direction-specific `OrderParams` plus its local context
+(chain id, contract address) before hashing. The digest is equal across
+chains **by construction**.
+
+| Slot | Field | Type |
+|---|---|---|
+| 1 | `orderChainToken` | `bytes32` |
+| 2 | `adChainToken` | `bytes32` |
+| 3 | `amount` | `uint256` (order-chain raw units) |
+| 4 | `bridger` | `bytes32` |
+| 5 | `orderChainId` | `uint256` |
+| 6 | `orderPortal` | `bytes32` |
+| 7 | `orderRecipient` | `bytes32` |
+| 8 | `adChainId` | `uint256` |
+| 9 | `adManager` | `bytes32` |
+| 10 | `adId` | `string` (hashed to `bytes32` via keccak256) |
+| 11 | `adCreator` | `bytes32` |
+| 12 | `adRecipient` | `bytes32` |
+| 13 | `salt` | `uint256` |
+| 14 | `orderDecimals` | `uint8` (padded to 32 bytes) |
+| 15 | `adDecimals` | `uint8` (padded to 32 bytes) |
+| 16 | `deadline` | `uint256` (unix seconds) |
+| 17 | `adSettlementSigner` | `bytes32` |
+| 18 | `lpFeeBps` | `uint16` |
+| 19 | `protocolFeeBps` | `uint16` |
+
+v3 added the last four: the [deadline](/v3/concepts/deadlines-and-clocks),
+the ad's [settlement signer](/v3/concepts/settlement-keys#naming-a-settlement-signer)
+and the two [fee](/v3/concepts/fees) rates. Because they're in the hash,
+both parties sign them and neither chain can apply different ones.
+
+## Typehash
+
+```text
+Order(
+  bytes32 orderChainToken, bytes32 adChainToken, uint256 amount,
+  bytes32 bridger,
+  uint256 orderChainId, bytes32 orderPortal, bytes32 orderRecipient,
+  uint256 adChainId, bytes32 adManager,
+  string adId, bytes32 adCreator, bytes32 adRecipient,
+  uint256 salt,
+  uint8 orderDecimals, uint8 adDecimals,
+  uint256 deadline, bytes32 adSettlementSigner,
+  uint16 lpFeeBps, uint16 protocolFeeBps
+)
+```
+
+`adId` is hashed with `keccak256` as a string member, per EIP-712.
+`orderDecimals` and `adDecimals` are described in
+[Decimal scaling](/concepts/decimal-scaling).
+
+## Minimal domain, on purpose
+
+```json
+{ "name": "Proofbridge", "version": "1" }
+```
+
+No `chainId` and no `verifyingContract`. Chain ids and contract addresses
+live **inside** the struct (slots 5–6, 8–9), so the same digest is
+accepted on either chain. They're still signed: a replay to the wrong
+chain or contract fails validation.
+
+## Values both chains can hold
+
+Soroban types some fields narrower than EVM, so both chains refuse values
+that would hash differently: `amount` and both chain ids must fit in 128
+bits, and `deadline` in 64 bits.
+
+## How the two sides build it
+
+- **OrderPortal** (order chain) fills in `orderChainId` and `orderPortal`
+  from its own context; the ad-chain fields come from the order.
+- **AdManager** (ad chain) does the mirror image: it fills in `adChainId`
+  and `adManager`, and takes the order-chain fields from the order.
+
+On EVM the implementation is the `OrderHash` library
+(`contracts/evm/src/libraries/OrderHash.sol`); on Stellar it's
+`proofbridge-core`. Off-chain, `@proofbridge/order-params` reproduces the
+digest, pinned by shared test vectors.
+
+## Why this matters for proofs
+
+The events circuit's public inputs include the order hash:
+`[nullifier, orderHash, targetRoot, leafDomain]`. If the two chains
+computed different digests for "the same" order, no single proof or
+co-signature could serve both sides.
