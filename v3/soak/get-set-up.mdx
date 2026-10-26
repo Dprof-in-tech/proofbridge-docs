@@ -59,11 +59,18 @@ network. Connecting the second wallet links it to the same account. [Connect a w
 ## 3. Your settlement key
 
 Every wallet you trade from needs a settlement key, registered once. On the **BLS Keys** page, click **Register**,
-sign the derivation message, then sign the registration. The relayer pays the gas. Do this for each wallet.
+sign the derivation message, then sign the registration. The relayer pays the gas.
 [Register a settlement key](/v3/guides/register-a-settlement-key).
 
-<Frame caption="Registering a key — two signatures, then the relayer files it">
-  <img src="/images/v3/soak-04-register-key.png" alt="The BLS Keys page mid-registration, showing the signature prompt" />
+<Frame caption="Pick the wallet to generate the key from, then sign twice">
+  <img src="/images/v3/soak-04-register-key.png" alt="The BLS Signing Key dialog with Ethereum Sepolia and Stellar Testnet to choose between, and a Generate Key button" />
+</Frame>
+
+One wallet at a time. After the first, the counters read **01 ready, 01 needs registration** —
+that second one is your other wallet, so repeat for it.
+
+<Frame caption="First key done. The other wallet still says Not Registered">
+  <img src="/images/v3/soak-05-first-key-done.png" alt="Registration Complete dialog, with one address Registered and the other still Not Registered behind it" />
 </Frame>
 
 While you're there, **file an emergency stop** for your key: it's part of what we're testing.
@@ -75,8 +82,8 @@ While you're there, **file an emergency stop** for your key: it's part of what w
 - [ ] Bridge tokens from the faucet
 - [ ] **BLS Keys** shows **Registered** for each wallet
 
-<Frame caption="What the last item looks like when it's done">
-  <img src="/images/v3/soak-05-key-registered.png" alt="The BLS Keys page showing a registered key for each connected wallet" />
+<Frame caption="Both wallets registered — 02 ready, 00 needing registration">
+  <img src="/images/v3/soak-06-all-keys-registered.png" alt="The BLS Keys page with both addresses showing Registered and the ready counter at 02" />
 </Frame>
 
 Then go to [What to test](/v3/soak/what-to-test).
