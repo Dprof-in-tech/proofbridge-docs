@@ -27,6 +27,35 @@
   "navigation": {
     "versions": [
       {
+        "version": "v3",
+        "tabs": [
+          {
+            "tab": "Documentation",
+            "groups": [
+              {
+                "group": "Get Started",
+                "pages": [
+                  "v3/environments"
+                ]
+              },
+              {
+                "group": "Core Concepts",
+                "pages": [
+                  "v3/concepts/supported-networks"
+                ]
+              },
+              {
+                "group": "Reference",
+                "pages": [
+                  "v3/reference/smart-contracts"
+                ]
+              }
+            ]
+          }
+        ],
+        "tag": "Latest"
+      },
+      {
         "version": "v2",
         "tabs": [
           {
@@ -101,35 +130,6 @@
                   "v2/api/ads",
                   "v2/api/trades",
                   "v2/api/settlement-and-keys"
-                ]
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "version": "v3",
-        "tag": "Preview",
-        "tabs": [
-          {
-            "tab": "Documentation",
-            "groups": [
-              {
-                "group": "Get Started",
-                "pages": [
-                  "v3/environments"
-                ]
-              },
-              {
-                "group": "Core Concepts",
-                "pages": [
-                  "v3/concepts/supported-networks"
-                ]
-              },
-              {
-                "group": "Reference",
-                "pages": [
-                  "v3/reference/smart-contracts"
                 ]
               }
             ]
