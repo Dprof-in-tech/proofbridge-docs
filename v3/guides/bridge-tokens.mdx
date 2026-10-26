@@ -3,8 +3,6 @@ title: "Bridge tokens"
 description: "The Bridger flow, end to end"
 ---
 
-import Screenshot from "/snippets/screenshot.mdx";
-
 ## Before you start
 
 - A wallet connected for the chain you're bridging **from**
@@ -66,8 +64,9 @@ When both deposits are confirmed, the trade page shows **Your Turn**.
 Click **Co-sign Settlement**: your settlement key signs the trade in the
 app, with no transaction and no gas.
 
-{/* SCREENSHOT: trade page, claim steps with Sign with BLS Key active */}
-<Screenshot caption="Co-sign: instant, no gas" />
+<Frame caption="Co-sign: instant, no gas">
+  <img src="/images/v3/bridge-03-cosign.png" alt="A locked trade with Sign with BLS Key as the active step, a Co-sign Settlement button, and the timeline showing the maker locked funds" />
+</Frame>
 
 ## 6. Done, the rest is automatic
 
