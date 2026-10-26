@@ -1,0 +1,115 @@
+---
+title: "Smart contracts"
+description: "What each ProofBridge contract does, and its address on mainnet and soak"
+---
+
+Each chain runs the same set of contracts. The two escrows hold the
+traders' funds; the rest check signatures and proofs, record events, and
+handle the paths a trade takes when it doesn't settle normally.
+
+## What each contract does
+
+| Contract | Role |
+| --- | --- |
+| `AdManager` | maker escrow: ads, liquidity, locks, the co-signed payout to the bridger, cancels and disputes. Its clock decides how a trade ends. |
+| `OrderPortal` | bridger escrow: orders and deposits, the co-signed payout to the maker. It follows the outcome the `AdManager` proves. |
+| `MerkleManager` | the append-only Merkle Mountain Range of trade events on this chain |
+| `Verifier` | checks the zero-knowledge proof of an event on the other chain |
+| `CounterpartyVerifier` | checks both traders' combined BLS co-signature at payout |
+| `BLSKeyRegistry` | each wallet's settlement keys, with proof of possession |
+| `RootAnchor` | the other chain's Merkle roots, used by cancels, forfeits and disputes |
+| `DisputeManager` | dispute filing, bonds and rulings. It never moves escrow funds. |
+| `Registrar` | registration of a key by proof from the account's home chain. Deployed, not active yet. |
+| `wNativeToken` | wrapped native token for native-asset ads and dispute bonds |
+
+On Ethereum, a few more deployments support these: `ProofBridgeUtils`
+(shared order and fee logic, a linked library), `Poseidon2Yul` (the
+hash the Merkle tree uses), `SCL_EIP6565` (ed25519 verification, so a
+Stellar wallet's signature can be checked on Ethereum), and the agent
+contracts (`AgentPolicy`, `AgentPolicyCodec`, `CustodyAccountFactory`).
+On Stellar, agent accounts are deployed per maker from a published wasm
+hash.
+
+<Note>
+The contracts have not been audited yet. An audit is planned for T3,
+backed by the Stellar Community Fund.
+</Note>
+
+## Addresses
+
+<Tabs>
+  <Tab title="Mainnet">
+    Mainnet isn't deployed yet. Its addresses will be listed here.
+  </Tab>
+  <Tab title="Soak">
+    The soak deployment of 2026-10-24.
+
+    ### Ethereum Sepolia (chain id 11155111)
+
+    | Contract | Address |
+    | --- | --- |
+    | `AdManager` | [`0x4a4d475041A76B7Ea62afbd86bd442dB10D2d36D`](https://sepolia.etherscan.io/address/0x4a4d475041A76B7Ea62afbd86bd442dB10D2d36D) |
+    | `OrderPortal` | [`0x8326A785D36541017917130b00C11d96ba2E19A8`](https://sepolia.etherscan.io/address/0x8326A785D36541017917130b00C11d96ba2E19A8) |
+    | `MerkleManager` | [`0xFE76187889dd021DD8db223956F30288A06A8457`](https://sepolia.etherscan.io/address/0xFE76187889dd021DD8db223956F30288A06A8457) |
+    | `Verifier` (deposit proof) | [`0xa6dCcad5f575B6C30cB5B4B4A5e238EE775Ff343`](https://sepolia.etherscan.io/address/0xa6dCcad5f575B6C30cB5B4B4A5e238EE775Ff343) |
+    | `CounterpartyVerifier` (BLS) | [`0x68898a465830F59b71d957C3a7989313B6455DCB`](https://sepolia.etherscan.io/address/0x68898a465830F59b71d957C3a7989313B6455DCB) |
+    | `BLSKeyRegistry` | [`0x337b8c9F79dB26f9853f860A697bb4AdA9527f01`](https://sepolia.etherscan.io/address/0x337b8c9F79dB26f9853f860A697bb4AdA9527f01) |
+    | `RootAnchor` | [`0xDF1C2d4c1DfCDd3443E6611c77619d1Bc0363B9F`](https://sepolia.etherscan.io/address/0xDF1C2d4c1DfCDd3443E6611c77619d1Bc0363B9F) |
+    | `DisputeManager` | [`0xa49991024176d85B238b5b2A76098E130bab1C53`](https://sepolia.etherscan.io/address/0xa49991024176d85B238b5b2A76098E130bab1C53) |
+    | `Registrar` | [`0x9bF389dCC36a87abf181feB0F3dB45e1340E9985`](https://sepolia.etherscan.io/address/0x9bF389dCC36a87abf181feB0F3dB45e1340E9985) |
+    | `wNativeToken` | [`0x6375f67C55FD5E213bC2e8c4ffDbD961ac5287e8`](https://sepolia.etherscan.io/address/0x6375f67C55FD5E213bC2e8c4ffDbD961ac5287e8) |
+    | `ProofBridgeUtils` | [`0x1Fbe9BAFdFED151aD572087B2613865719897186`](https://sepolia.etherscan.io/address/0x1Fbe9BAFdFED151aD572087B2613865719897186) |
+    | `Poseidon2Yul` | [`0x5BfF941E7C052E4858218aB0b9398E423bfdca00`](https://sepolia.etherscan.io/address/0x5BfF941E7C052E4858218aB0b9398E423bfdca00) |
+    | `SCL_EIP6565` (ed25519 verify) | [`0xf27bA1cc1E5aCDaf594E2D812242D9933C126Bc1`](https://sepolia.etherscan.io/address/0xf27bA1cc1E5aCDaf594E2D812242D9933C126Bc1) |
+    | `AgentPolicy` | [`0xFcC566d65AD2d8eedf069b74b44F6240C6be198E`](https://sepolia.etherscan.io/address/0xFcC566d65AD2d8eedf069b74b44F6240C6be198E) |
+    | `AgentPolicyCodec` | [`0xf48fC0Ca304e5C0082C411d15D9460d66aa58aA9`](https://sepolia.etherscan.io/address/0xf48fC0Ca304e5C0082C411d15D9460d66aa58aA9) |
+    | `CustodyAccountFactory` | [`0x9e35068930c9caD7a194a077Bf10A48ddB9Cc37A`](https://sepolia.etherscan.io/address/0x9e35068930c9caD7a194a077Bf10A48ddB9Cc37A) |
+
+    ### Stellar Testnet (chain id 1000002)
+
+    | Contract | Address |
+    | --- | --- |
+    | `AdManager` | [`CATOP2IWY74AWZJH6M5JVGUQY62UV4EEBP5XIMVNPEBG2WH6F5GOOXKN`](https://stellar.expert/explorer/testnet/contract/CATOP2IWY74AWZJH6M5JVGUQY62UV4EEBP5XIMVNPEBG2WH6F5GOOXKN) |
+    | `OrderPortal` | [`CCAWCRS7K4QUZWJ7MJMAL3HKQQ3ANJRZ6NJIWQ4S2EZG4SNGUMUOF3N3`](https://stellar.expert/explorer/testnet/contract/CCAWCRS7K4QUZWJ7MJMAL3HKQQ3ANJRZ6NJIWQ4S2EZG4SNGUMUOF3N3) |
+    | `MerkleManager` | [`CARZQL4QCCG6SPMSNI5JJZF427DS7NHJH2XGSECRV3I2O7MMUIN4AL7V`](https://stellar.expert/explorer/testnet/contract/CARZQL4QCCG6SPMSNI5JJZF427DS7NHJH2XGSECRV3I2O7MMUIN4AL7V) |
+    | `Verifier` (deposit proof) | [`CCSBR5PHK5WYMSNBUOG5ES72CJD2C3Q724DKWEDWI3UVF6GVWNZ7UVMI`](https://stellar.expert/explorer/testnet/contract/CCSBR5PHK5WYMSNBUOG5ES72CJD2C3Q724DKWEDWI3UVF6GVWNZ7UVMI) |
+    | `CounterpartyVerifier` (BLS) | [`CC5EGJATDUJ2RF6CZZSCW4IYPJVZLPYDUX767CQ32L4QSM23WNTCIAUT`](https://stellar.expert/explorer/testnet/contract/CC5EGJATDUJ2RF6CZZSCW4IYPJVZLPYDUX767CQ32L4QSM23WNTCIAUT) |
+    | `BLSKeyRegistry` | [`CCZXDMMKAKZ6NVJ24DJVIKI4MIUKVB2CZDZOH42HOALZHFSP35HRQYBB`](https://stellar.expert/explorer/testnet/contract/CCZXDMMKAKZ6NVJ24DJVIKI4MIUKVB2CZDZOH42HOALZHFSP35HRQYBB) |
+    | `RootAnchor` | [`CCUBZLFSZE7624BGFCYUECLSGLN3NLK5HHOTOAE5YLEAACO3W2XXKBBH`](https://stellar.expert/explorer/testnet/contract/CCUBZLFSZE7624BGFCYUECLSGLN3NLK5HHOTOAE5YLEAACO3W2XXKBBH) |
+    | `DisputeManager` | [`CAPSTTF7WRFI3GEEVNESA5ZIDEDWU2FTNI4WKYWCAIELD6SWABSU74CZ`](https://stellar.expert/explorer/testnet/contract/CAPSTTF7WRFI3GEEVNESA5ZIDEDWU2FTNI4WKYWCAIELD6SWABSU74CZ) |
+    | `Registrar` | [`CD53ELATTSO2JPL2H5DSAPLLJCHFYR6AVLQCUP2J55ZQTHFWJPH3ZTJW`](https://stellar.expert/explorer/testnet/contract/CD53ELATTSO2JPL2H5DSAPLLJCHFYR6AVLQCUP2J55ZQTHFWJPH3ZTJW) |
+    | `wNativeToken` | [`CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`](https://stellar.expert/explorer/testnet/contract/CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC) |
+
+    Agent account wasm hash: `817127caf42460df32495b3f7b4c900f9e81018095b0fbc0248a3e8fb419add3`
+
+    ### Route tokens
+
+    Each pair is routed in both directions.
+
+    | Pair | Sepolia | Stellar Testnet |
+    | --- | --- | --- |
+    | XLM | WXLM (ERC-20, 18 decimals) [`0xba03…414c`](https://sepolia.etherscan.io/address/0xba033066076e704E50124B9cDba63EFD3dC6414c) | XLM (native, 7 decimals) |
+    | ETH | ETH (native, 18 decimals) | wETH (SEP-41, 7 decimals) [`CB73…JVLM`](https://stellar.expert/explorer/testnet/contract/CB73XXFFMBNAVYCFC6I2MRIMWSCQRCMIG2TCQVJYTUDHVPTL53IHJVLM) |
+    | PB | PB (ERC-20, 18 decimals) [`0x4074…59B`](https://sepolia.etherscan.io/address/0x407498fD9C955bed021c03BcbB99aD514042b59B) | PB (SEP-41, 7 decimals) [`CC2R…JJIS`](https://stellar.expert/explorer/testnet/contract/CC2RCWFXWYZJ7R75G7DM7Z2SDQQH3MWETCFBKUY27OCUXAYPGERWJJIS) |
+
+    ### Settings
+
+    The same on both chains.
+
+    | Setting | Value |
+    | --- | --- |
+    | Bridge fee | 0.3% to the maker, 0.2% to the protocol |
+    | Shortest order window | 20 minutes |
+    | Cancel window after the deadline | 30 minutes |
+    | Anchor delay | 5 minutes |
+    | Dispute challenge period | 1 hour |
+    | Dispute bond | 0.001 WETH on Sepolia, 1 XLM on Stellar |
+  </Tab>
+</Tabs>
+
+<Note>
+Addresses change when a deployment is replaced. This page follows the
+deployment manifests in the
+[ProofBridge repo](https://github.com/Explore-Beyond-Innovations/ProofBridge),
+which are the source of truth.
+</Note>

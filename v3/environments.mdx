@@ -1,0 +1,28 @@
+---
+title: "Environments"
+description: "Where to find the ProofBridge app and API, on mainnet and on the soak testnet"
+---
+
+import Environments from "/snippets/environments.mdx";
+
+ProofBridge runs in two environments. **Soak** is the public testnet
+deployment, on Ethereum Sepolia and Stellar Testnet, with test tokens.
+**Mainnet** is the production deployment.
+
+<Environments />
+
+Every page in these docs that links to the app or the API uses the same
+two tabs. Pick the environment you're working in and the links follow.
+
+## What differs between them
+
+| | Mainnet | Soak |
+| --- | --- | --- |
+| Networks | Ethereum, Stellar | Ethereum Sepolia, Stellar Testnet |
+| Funds | real assets | test tokens from the [faucet](/v2/guides/faucet) |
+| Contracts | the mainnet deployment | the testnet deployment on [Smart contracts](/v3/reference/smart-contracts) |
+
+<Warning>
+Never send mainnet assets to a soak address. The two deployments are
+separate, and soak contracts are redeployed from time to time.
+</Warning>

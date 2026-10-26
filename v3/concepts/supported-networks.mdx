@@ -1,0 +1,76 @@
+---
+title: "Supported networks and routes"
+sidebarTitle: "Supported networks"
+description: "The chains ProofBridge runs on, the token routes between them, and how tokens pair across chains"
+---
+
+import Environments from "/snippets/environments.mdx";
+
+ProofBridge settles trades between **Ethereum** and **Stellar**. Each
+chain runs the same set of contracts, and every route works in both
+directions.
+
+<Environments />
+
+## Networks
+
+<CardGroup cols={2}>
+  <Card title="Ethereum Sepolia" icon="/logos/ethereum.svg">
+    Chain ID: **11155111**
+
+    Solidity contracts. Native ETH is wrapped automatically on deposit
+    and unwrapped on payout.
+  </Card>
+  <Card title="Stellar Testnet" icon="/logos/stellar.svg">
+    ProofBridge chain ID: **1000002**
+
+    Network passphrase: **Test SDF Network ; September 2015**
+
+    Soroban contracts. Supports native XLM, Stellar Asset Contracts (SAC)
+    and SEP-41 tokens.
+  </Card>
+</CardGroup>
+
+<Note>
+Stellar has no numeric chain ID of its own. ProofBridge gives each
+Stellar network a fixed ID so orders can name both chains the same way.
+</Note>
+
+## Routes
+
+Tokens pair across chains by value: what you deposit on one chain, you
+receive on the other, less the [bridge fee](/v3/reference/smart-contracts#settings).
+Amounts are aligned across different token decimals automatically
+([decimal scaling](/concepts/decimal-scaling)).
+
+<Tabs>
+  <Tab title="ETH ↔ wETH">
+    | Direction | You deposit | You receive |
+    |---|---|---|
+    | Sepolia → Stellar | ETH (wrapped on deposit) | wETH (SEP-41) |
+    | Stellar → Sepolia | wETH (SEP-41) | ETH (unwrapped on payout) |
+  </Tab>
+  <Tab title="XLM ↔ WXLM">
+    | Direction | You deposit | You receive |
+    |---|---|---|
+    | Stellar → Sepolia | XLM (wrapped on deposit) | WXLM (ERC-20) |
+    | Sepolia → Stellar | WXLM (ERC-20) | XLM (unwrapped on payout) |
+  </Tab>
+  <Tab title="PB">
+    | Direction | You deposit | You receive |
+    |---|---|---|
+    | Sepolia → Stellar | PB (ERC-20) | PB (SEP-41) |
+    | Stellar → Sepolia | PB (SEP-41) | PB (ERC-20) |
+
+    PB is a test token for trying the flow end to end.
+  </Tab>
+</Tabs>
+
+Token addresses are on the [Smart contracts](/v3/reference/smart-contracts)
+page.
+
+## No sign-up
+
+You connect with your wallet. There are no accounts, usernames or KYC.
+Your wallet address is your identity, and the trade terms are enforced
+by the contracts on each chain.
