@@ -23,9 +23,7 @@ sequenceDiagram
 
     M->>AC: escrow liquidity (ad)
     B->>OC: create + fund order (deadline set)
-    B->>R: encrypted half of the trade secret
     M->>AC: lock for order
-    M->>R: encrypted half of the trade secret
     Note over AC,OC: both deposits recorded in each chain's MMR — Locked
     M->>R: BLS co-signature
     B->>R: BLS co-signature
@@ -63,12 +61,10 @@ Each deposit is recorded in that chain's
 [Merkle Mountain Range](/v3/concepts/merkle-mountain-range), the
 append-only tree the deposit proofs are built against.
 
-## 4. Each party sends its half of the trade secret
+## 4. Each party has its half of the trade secret
 
 Each payout needs a one-time secret. In v3 each party derives its own half
-of that secret from a wallet signature: the bridger after creating the
-order, the maker with the lock. Each sends its half to the relayer,
-encrypted, so the proofs can be built. See [Trade secrets](/v3/concepts/trade-secrets).
+of that secret from a wallet signature. See [Trade secrets](/v3/concepts/trade-secrets).
 
 ## 5. Both parties co-sign
 
