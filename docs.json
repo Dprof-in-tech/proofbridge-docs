@@ -35,13 +35,36 @@
               {
                 "group": "Get Started",
                 "pages": [
+                  "v3/introduction",
+                  "v3/how-it-works",
+                  "v3/quickstart",
                   "v3/environments"
                 ]
               },
               {
                 "group": "Core Concepts",
                 "pages": [
+                  "v3/concepts/makers-and-bridgers",
+                  "v3/concepts/liquidity-ads",
+                  "v3/concepts/fees",
+                  "v3/concepts/settlement-keys",
+                  "v3/concepts/co-signing",
+                  "v3/concepts/trade-secrets",
+                  "v3/concepts/deposit-proofs",
+                  "v3/concepts/merkle-mountain-range",
+                  "v3/concepts/order-hashing",
+                  "concepts/decimal-scaling",
+                  "v3/concepts/agents",
                   "v3/concepts/supported-networks"
+                ]
+              },
+              {
+                "group": "When a Trade Doesn't Settle",
+                "pages": [
+                  "v3/concepts/deadlines-and-clocks",
+                  "v3/concepts/cancels-and-refunds",
+                  "v3/concepts/disputes",
+                  "v3/concepts/root-anchors"
                 ]
               },
               {
