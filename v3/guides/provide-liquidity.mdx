@@ -3,8 +3,6 @@ title: "Provide liquidity"
 description: "The Maker flow: create an ad, lock orders and co-sign, by hand or with an agent"
 ---
 
-import Screenshot from "/snippets/screenshot.mdx";
-
 Makers earn the LP fee by posting **ads**: escrowed liquidity a Bridger
 can trade against.
 
@@ -51,8 +49,15 @@ When a Bridger funds an order on your ad, the **Orders** page shows
 2. **Co-sign Settlement:** once both deposits confirm, sign with your
    settlement key. No transaction, no gas.
 
-{/* SCREENSHOT: Orders page, an incoming order with Lock Tokens */}
-<Screenshot caption="An incoming order waiting for your lock" />
+<Frame caption="Your turn: the bridger has deposited, and the lock is yours to send">
+  <img src="/images/v3/liquidity-02-lock-tokens.png" alt="A trade on the maker's side reading Your Turn, with a Lock Tokens button and a timeline showing the bridger reserved liquidity and their deposit landed" />
+</Frame>
+
+Locking is a transaction: an approval, then the lock itself.
+
+<Frame caption="Approve, submit, finalize — the same three beats as a deposit">
+  <img src="/images/v3/liquidity-03-locking.png" alt="The lock in progress, with Approve in Wallet done, Submit On-Chain running and Finalize Deposit still to come" />
+</Frame>
 
 You get a notification for each new order on your ad.
 
