@@ -1,0 +1,48 @@
+---
+title: "Get test tokens"
+description: "Fund your wallets on soak: the in-app faucet and gas"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+Soak runs on testnets, so you need test funds on both sides.
+
+## In-app faucet
+
+The **Faucet** page mints the test tokens the soak routes use (WXLM and PB
+on Sepolia, wETH and PB on Stellar) to your connected wallet.
+
+<Steps>
+  <Step title="Open the Faucet">
+    Each network has its own section. Connect the wallet for that network
+    if it shows **Not connected**.
+  </Step>
+  <Step title="Claim a token">
+    Click the token to claim. The faucet mints a fixed amount to your
+    wallet.
+  </Step>
+  <Step title="Wait for it to land">
+    The claim shows **Processing**, then **Confirming**, then
+    **Confirmed**. It usually takes under a minute, and it's safe to close
+    the window: the claim keeps running.
+  </Step>
+</Steps>
+
+{/* SCREENSHOT: Faucet page, Sepolia section open, one claim in progress */}
+<Screenshot caption="The faucet: one section per network" />
+
+The faucet refuses a claim when:
+
+- your wallet already holds plenty of that token
+- a claim for the same token is still in progress
+- the faucet has had repeated failures on that chain; try again later
+
+## Gas
+
+- **Sepolia ETH:** any public Sepolia faucet
+- **Testnet XLM:** Stellar Friendbot funds new accounts
+
+<Note>
+Key registration gas is paid by the relayer on both chains. You only need
+gas for your own deposits, locks and ad transactions.
+</Note>
