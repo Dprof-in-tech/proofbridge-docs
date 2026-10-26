@@ -1,0 +1,96 @@
+---
+title: "Quickstart"
+description: "Bridge your first tokens on soak"
+---
+
+import Environments from "/snippets/environments.mdx";
+import Screenshot from "/snippets/screenshot.mdx";
+
+<Environments />
+
+## Before you start
+
+- **Wallets:** an EVM wallet on Sepolia and/or a Stellar wallet on
+  Testnet. You need the wallet of the chain you're depositing from. See
+  [Connect a wallet](/v2/guides/connect-wallet).
+- **Test funds:** Sepolia ETH for gas and XLM on Stellar Testnet. The
+  in-app **Faucet** covers the bridge tokens ([Get test tokens](/v2/guides/faucet)).
+
+## Step 1: Register your settlement key (once per wallet)
+
+Every trading wallet needs a settlement key registered before it can
+complete a trade. On the **BLS Keys** page:
+
+<Steps>
+  <Step title="Derive">
+    Sign the derivation message. Your key is computed from this signature,
+    so you can regenerate it on any device by signing again. There is
+    nothing to back up.
+  </Step>
+  <Step title="Authorize">
+    Sign the registration. It carries a proof of possession, so nobody can
+    register a key they don't hold.
+  </Step>
+  <Step title="Confirm">
+    The relayer submits the registration to the registries on **both**
+    chains and pays the gas. The page shows the key as registered once
+    both confirm.
+  </Step>
+</Steps>
+
+{/* SCREENSHOT: BLS Keys page, one connected wallet, key status "Registered" on both chains */}
+<Screenshot caption="The BLS Keys page with a registered key" />
+
+<Warning>
+Keys belong to **wallets**, not accounts. If you trade from two wallets
+(one per chain), each wallet registers its own key.
+</Warning>
+
+## Step 2: Open an order
+
+On the **Bridge** page, pick the chains and token, then choose an ad.
+Enter the amount; the app shows what you pay, the
+[fee](/v3/concepts/fees) and what you receive. Set the receive address on
+the destination chain, then **Hold to Bridge**.
+
+Your wallet then runs the deposit:
+
+1. **Approve in Wallet:** a one-time token approval (token routes only)
+2. **Submit On-Chain:** the deposit into the OrderPortal escrow
+3. **Finalize Deposit:** the app tells the relayer it landed
+
+{/* SCREENSHOT: Bridge page, ad selected, amount entered, pay / fee / receive breakdown visible */}
+<Screenshot caption="Choosing an amount: what you pay, the fee, what you receive" />
+
+If you close the wallet popup by mistake, the order waits for you on the
+**Orders** page: **Resume** serves the same transaction without reserving
+more of the maker's liquidity. Unfunded orders are released after ~30
+minutes.
+
+## Step 3: Co-sign
+
+When both deposits are confirmed, the trade page shows **Sign with BLS
+Key**. One click: your settlement key signs the trade in the app, with no
+transaction and no gas. The maker signs their half independently, or
+their agent does.
+
+{/* SCREENSHOT: trade detail page, claim steps with "Sign with BLS Key" active */}
+<Screenshot caption="The co-sign step on the trade page" />
+
+## Step 4: Watch it settle
+
+Nothing else to do. The steps advance as the signatures are combined, the
+proofs are built and the payouts are submitted:
+
+```
+Sign with BLS Key → Aggregated → Submit On-chain → Completed
+```
+
+Your tokens arrive at your receive address on the destination chain. The
+trade page's timeline links every transaction.
+
+<Note>
+If the trade doesn't settle by its deadline, it doesn't get stuck: it can
+be cancelled and your deposit refunded. See
+[Cancels and refunds](/v3/concepts/cancels-and-refunds).
+</Note>
