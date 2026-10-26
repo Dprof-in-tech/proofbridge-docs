@@ -1,0 +1,57 @@
+---
+title: "The soak"
+description: "What the soak is, what you'll be testing, and where to start"
+---
+
+import Environments from "/snippets/environments.mdx";
+
+The **soak** is ProofBridge running end to end on public testnets, before mainnet. Every part is live: the contracts
+on Ethereum Sepolia and Stellar Testnet, the relayer, the app, agents and hosted pods. Real people trading with test
+tokens is how we find what breaks, what confuses, and what's slow, while nothing of value is at stake.
+
+You're here to use the app the way a real bridger or maker would, try the paths that go wrong on purpose, and tell us
+what you find.
+
+<Info>
+**The soak runs for 14 days:** from **Monday 26 October 2026, 12:00 GMT+1** to **Monday 9 November 2026, 12:00
+GMT+1**.
+</Info>
+
+<Environments />
+
+Use the **Soak** tab above for every link. Soak tokens have no value; never send real assets to a soak address.
+
+## Your path
+
+<Steps>
+  <Step title="Get set up">
+    Wallets on both chains, test funds, and your settlement key. About 15 minutes.
+    [Get set up](/v3/soak/get-set-up).
+  </Step>
+  <Step title="Run the missions">
+    Bridge both ways, provide liquidity, let a trade expire, file a dispute, try an agent. Each mission says what
+    to check. [What to test](/v3/soak/what-to-test).
+  </Step>
+  <Step title="Report what you find">
+    Bugs, confusing moments, slow steps, and things that worked well. [Report findings](/v3/soak/report-findings).
+  </Step>
+</Steps>
+
+## Good to know first
+
+- **Trades are timed.** Every order has a deadline, about 40 minutes on soak. If a trade doesn't settle by then,
+  it's cancelled and refunded. See [Timings and FAQ](/v3/soak/timings-and-faq).
+- **You'll want two wallets** for the full picture: one on Sepolia and one on Stellar. Bridging needs only the
+  wallet you send from.
+- **Test on a phone too.** Mobile wallets and layouts are part of what we're checking.
+
+## Join the community
+
+Testers and the team meet on Discord. Ask questions, compare notes with other testers, and find a partner for the
+two-party missions there.
+
+<Card title="Join the ProofBridge Discord" icon="discord" href="https://discord.gg/vHTuw8prT7">
+  The soak's home for questions, updates and finding a trading partner.
+</Card>
+
+{/* SOAK DETAILS: add any tester programme details here */}
