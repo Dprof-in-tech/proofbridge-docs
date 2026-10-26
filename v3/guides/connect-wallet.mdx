@@ -1,0 +1,57 @@
+---
+title: "Connect a wallet"
+description: "EVM and Stellar wallets, signing in, and when you need both"
+---
+
+import Environments from "/snippets/environments.mdx";
+import Screenshot from "/snippets/screenshot.mdx";
+
+<Environments />
+
+ProofBridge works with one wallet per chain:
+
+- **EVM** (Sepolia): MetaMask, Rainbow and other browser wallets, or
+  WalletConnect
+- **Stellar** (Testnet): xBull, Freighter, Lobstr, Hana, or WalletConnect
+
+Click **Connect Wallet** to open the wallet hub. It lists each network
+and whether you're connected and signed in there.
+
+{/* SCREENSHOT: Connect Wallets hub, one network Signed In and one Not connected */}
+<Screenshot caption="The wallet hub: connect and sign in per network" />
+
+## On a phone
+
+Freighter, Lobstr and Hana's browser versions are desktop extensions. On a
+phone, connect with **xBull** or through **WalletConnect** (for example,
+the Lobstr or Freighter mobile app).
+
+## Which wallets do you need?
+
+The wallet of the chain **you deposit from** is required. Connecting both
+is recommended:
+
+- as a **Bridger**, you deposit on the order chain and receive on the
+  other chain
+- as a **Maker**, your liquidity lives on the ad chain and you receive on
+  the order chain
+
+## Sign in
+
+Connecting asks for a one-time sign-in signature: a challenge, with no
+transaction and no gas. EVM wallets sign a Sign-In with Ethereum message;
+Stellar wallets sign a SEP-10 challenge.
+
+Connecting your second wallet links it to the same account, so the app
+shows all your trades in one place. The hub shows **Link wallet
+required** until you do.
+
+You stay signed in while you use the app. After two weeks without use, or
+30 days in all, you sign in again.
+
+<Note>
+Each trading wallet also needs a one-time
+[settlement key registration](/v3/guides/register-a-settlement-key)
+before it can complete trades. The app prompts you when it's needed, or
+you can do it up front on the **BLS Keys** page.
+</Note>

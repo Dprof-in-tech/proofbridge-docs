@@ -1,0 +1,62 @@
+---
+title: "Track orders"
+description: "The Orders page, the trade page, and what each status asks of you"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+The **Orders** page shows every trade you're a party to, in **Pending
+Orders** and **Completed** tabs. Open any order to see its trade page.
+
+{/* SCREENSHOT: Orders page, Pending Orders tab with two orders in different states */}
+<Screenshot caption="Pending orders" />
+
+## What the order asks of you
+
+| You see | It means |
+| --- | --- |
+| **Complete Order** | your deposit was never submitted. Click to retry with the same order (no new reservation). |
+| **Waiting for Creator** / **Awaiting Lock** | your deposit is in; the maker hasn't locked yet |
+| **Lock Tokens** (maker) | a Bridger funded an order on your ad: lock the matching liquidity |
+| **Confirming Deposits…** | deposits waiting for enough confirmations |
+| **Register BLS Key** | the named wallet has no settlement key yet |
+| **Co-sign Settlement** | deposits are confirmed: one click to sign |
+| **Waiting for Counterparty** | your signature is in |
+| **Aggregating… / Settling…** | the payouts are in progress; nothing to do |
+| **Completed** | funds delivered |
+
+## The trade page
+
+- **Status:** whose turn it is, and the steps for the current action
+- **Timeline:** every event with its transaction: order reserved, deposit
+  landed, maker locked, each co-signature, each proof, each payout, and
+  any cancel or dispute
+- **Transaction Details:** what you sent, the fee and what you get, the
+  **Deadline** and the **Time Left**
+- **Your trade half:** your half of the [trade secret](/v3/concepts/trade-secrets),
+  with **Copy** and **Download**. It shows whether it matches the
+  nullifier on record; if it doesn't, don't co-sign.
+
+{/* SCREENSHOT: trade page with Status, Timeline and Transaction Details */}
+<Screenshot caption="The trade page" />
+
+## When a trade doesn't settle
+
+| You see | It means |
+| --- | --- |
+| **Deadline passed** | anyone can now start a cancel |
+| **Cancel claimed** | the cancel window is open |
+| **Refund on its way** | the cancel finished; your deposit is being refunded |
+| **Cancelled** | the trade ended without settling; funds returned |
+| **Held: the maker has paused settlement** | the maker halted settlement; it continues when they resume, or the trade takes the cancel path |
+| **Disputed** | a dispute was filed |
+
+See [Cancel or get a refund](/v3/guides/cancel-or-get-a-refund) and
+[File a dispute](/v3/guides/file-a-dispute).
+
+## Notifications
+
+The bell tracks: a new order on your ad, an order locked, a Bridger
+claimed, an order expired, a trade cancelled, a dispute opened, answered
+or ruled, and agent alerts (killed, policy expiring or expired, guard
+rail).
