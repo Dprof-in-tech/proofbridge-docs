@@ -1,0 +1,102 @@
+---
+title: "Makers and Bridgers: understanding ProofBridge roles"
+sidebarTitle: "Makers & Bridgers"
+description: "ProofBridge has two roles: Makers who provide cross-chain liquidity and Bridgers who move assets. Both co-sign every settlement."
+---
+
+Every cross-chain transfer involves two parties: a **Maker** who provides
+liquidity on one chain, and a **Bridger** who moves assets from the other.
+Neither needs to trust the other: settlement needs **both parties' BLS
+co-signatures** and an on-chain zero-knowledge proof of each deposit.
+
+## The two roles
+
+<CardGroup cols={2}>
+  <Card title="Maker" icon="droplet">
+    A liquidity provider who posts an ad, locks liquidity for each order,
+    and receives the Bridger's tokens at settlement, plus a fee. A Maker
+    can serve trades by hand or let an [agent](/v3/concepts/agents) lock
+    orders within limits they set.
+  </Card>
+  <Card title="Bridger" icon="bridge">
+    A user moving assets across chains. Bridgers deposit against a
+    matching ad and receive the Maker's tokens on the other chain.
+  </Card>
+</CardGroup>
+
+Both roles share one prerequisite: the trading wallet needs a registered
+[settlement key](/v3/concepts/settlement-keys), a one-time step, because
+every trade settles only with both parties' signatures.
+
+## How Makers work
+
+<Steps>
+  <Step title="Create and fund an ad">
+    Post an ad for a route and deposit liquidity into the `AdManager`
+    contract. The ad names your settlement signer: the wallet whose key
+    co-signs your side of each trade.
+  </Step>
+  <Step title="Lock for an order">
+    When a Bridger funds an order against your ad, lock the matching
+    liquidity. This is your deposit into the trade. An agent can do this
+    for you.
+  </Step>
+  <Step title="Co-sign">
+    Once both deposits confirm, sign the settlement with your settlement
+    key, in the app, with no transaction.
+  </Step>
+  <Step title="Receive the Bridger's tokens">
+    The relayer combines the signatures, proves both deposits and submits
+    the payouts. You receive the Bridger's full deposit, and the LP fee
+    stays in your ad.
+  </Step>
+</Steps>
+
+## How Bridgers work
+
+<Steps>
+  <Step title="Pick a route and deposit">
+    Choose an ad with enough liquidity, enter the amount and fund the
+    order. Your tokens go into the `OrderPortal` escrow. Native ETH and
+    XLM are wrapped automatically.
+  </Step>
+  <Step title="Co-sign">
+    When both deposits confirm, one click signs the settlement with your
+    settlement key. The trade can't settle without it.
+  </Step>
+  <Step title="Receive your tokens">
+    The same process settles both chains. You receive the amount less the
+    [fee](/v3/concepts/fees) at your receive address.
+  </Step>
+</Steps>
+
+<Note>
+  No sign-up is required. Your connected wallet is your identity, and your
+  settlement key derives from a wallet signature.
+</Note>
+
+## Comparing the two roles
+
+| | Maker | Bridger |
+|---|---|---|
+| **Primary action** | Posts liquidity ads | Opens orders against ads |
+| **What you lock** | Ad-chain tokens | Order-chain tokens |
+| **What you receive** | The Bridger's full deposit, plus the LP fee kept in the ad | The amount less the fee |
+| **Co-signature** | Required (by hand, or the settlement signer you named) | Required, one click |
+| **If the trade doesn't settle** | Your lock returns to the ad | Your deposit is refunded |
+| **Can file a dispute** | Yes | Yes |
+| **On-chain contract** | `AdManager` | `OrderPortal` |
+
+## What protects both sides
+
+Settlement needs three things, all checked on-chain: your signature, the
+counterparty's signature (combined into one), and a zero-knowledge proof
+of each deposit. The relayer can't forge either signature, can't invent a
+deposit, and holds no funds. If a trade doesn't settle by its deadline,
+the [cancel path](/v3/concepts/cancels-and-refunds) returns each side's
+funds, and either side can [file a dispute](/v3/concepts/disputes).
+
+A Maker can also **halt settlement** on their ads in one transaction,
+for example if their settlement key may be compromised. While halted, no
+co-signed payout goes through on that Maker's ads; trades end through the
+cancel path instead.

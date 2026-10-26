@@ -1,0 +1,89 @@
+---
+title: "Liquidity ads: how the ProofBridge marketplace works"
+sidebarTitle: "Liquidity ads"
+description: "A liquidity ad is a Maker's on-chain offer of cross-chain liquidity. How ads are created, reserved, locked and settled in v3."
+---
+
+A liquidity ad is the on-chain offer that makes peer-to-peer bridging
+possible. When a Maker posts an ad, they commit liquidity in a specific
+token on one chain against deposits of a specific token on another.
+Bridgers pick the ad that matches their transfer.
+
+## What a liquidity ad contains
+
+- **The route:** which token a Bridger deposits, and which token (on which
+  chain) the Maker provides. Tokens pair **1:1 by value**, less the
+  [fee](/v3/concepts/fees); amounts are aligned across token decimals
+  automatically ([decimal scaling](/concepts/decimal-scaling)).
+- **Pool amount:** the liquidity the Maker has escrowed
+- **Min / max per trade:** optional limits
+- **Settlement signer:** the wallet whose
+  [settlement key](/v3/concepts/settlement-keys) co-signs the Maker's
+  side of every trade. Usually the Maker's own wallet. If it's another
+  wallet, that wallet has to approve the Maker first.
+- **Ad ID:** the identifier orders and proofs reference
+
+These live on-chain in the `AdManager` contract; the app's routes are
+built from them.
+
+The ad's maker can be a wallet or an [agent account](/v3/concepts/agents).
+Only an ad held by an agent account can be served by an agent.
+
+## Ad lifecycle
+
+<Steps>
+  <Step title="Create + fund">
+    The Maker submits `createAd` and escrows the pool. Only funded ads
+    serve orders.
+  </Step>
+  <Step title="Reserved by an order">
+    A Bridger creates an order against the ad, and the matching slice of
+    the pool is **reserved** before any money moves. Reservations from
+    orders that are never funded are released after ~30 minutes, so
+    abandoned checkouts can't strand liquidity.
+  </Step>
+  <Step title="Locked for the order">
+    Once the Bridger's deposit confirms, the Maker locks the reserved
+    liquidity on-chain (`lockForOrder`). This is the Maker's deposit into
+    the trade. Both deposits are recorded in their chain's Merkle Mountain
+    Range.
+  </Step>
+  <Step title="Co-signed">
+    Both parties sign the settlement with their settlement keys. The trade
+    can't settle without both signatures.
+  </Step>
+  <Step title="Settled, or ended">
+    The payouts are proven and submitted on both chains. The locked amount
+    leaves the ad, less the LP fee, which stays in the pool. If the trade
+    doesn't settle by its deadline, the lock returns to the ad through the
+    [cancel path](/v3/concepts/cancels-and-refunds).
+  </Step>
+  <Step title="Closed">
+    The Maker can close the ad and reclaim the remaining pool once its
+    trades have ended.
+  </Step>
+</Steps>
+
+## Available vs pool
+
+The amount a new order can take is the on-chain pool **minus the holds of
+open trades** (reservations and locks).
+
+<Warning>
+  Don't close an ad while trades are in progress: locked amounts stay
+  held until their trades end.
+</Warning>
+
+## Pausing
+
+When the contracts are paused, nothing new can start: no new ads, funding,
+locks or orders. Everything already under way can still finish, settle,
+cancel or be refunded, and no deadline is stretched.
+
+## What prevents double-spends
+
+Each payout consumes a **nullifier**, a one-time value bound to the trade
+and the side it pays. Once it's recorded on-chain, any replay is rejected,
+independently on each chain. Together with the co-signed roots and the
+co-signed nullifiers, a deposit settles exactly once, in exactly one
+direction, with both parties' consent.
