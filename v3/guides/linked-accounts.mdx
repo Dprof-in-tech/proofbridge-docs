@@ -3,8 +3,6 @@ title: "Linked accounts"
 description: "Create or link an agent account on the Accounts page"
 ---
 
-import Screenshot from "/snippets/screenshot.mdx";
-
 An [agent account](/v3/concepts/agents) is a contract account your wallet
 owns. It holds your ad so an agent can lock orders on it, but it never
 holds funds. You manage them on the **Accounts** page.
@@ -28,8 +26,13 @@ holds funds. You manage them on the **Accounts** page.
   </Step>
 </Steps>
 
-{/* SCREENSHOT: Accounts page, Create an agent account with network selected */}
-<Screenshot caption="Creating an agent account" />
+<Frame caption="Pick the network, then create and link in one step">
+  <img src="/images/v3/accounts-01-create.png" alt="The Accounts page with a network chosen for a new agent account, a section for linking an account made elsewhere, and an empty linked-accounts list" />
+</Frame>
+
+<Frame caption="Linked, and the next step named — allow it as a maker under your key">
+  <img src="/images/v3/accounts-02-linked.png" alt="The Accounts page after creating a Stellar agent account, showing it in the linked list with an Unlink button and a note pointing to Maker approvals" />
+</Frame>
 
 ## Link an existing account
 
