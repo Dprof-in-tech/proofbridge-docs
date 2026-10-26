@@ -1,0 +1,420 @@
+---
+title: "Ads"
+description: "Browse ads, and create, fund, withdraw from, pause and close your own"
+---
+
+An ad is a maker's standing offer on one route: funds escrowed in the `AdManager` on the ad chain,
+paid out to bridgers who pay the order token on the other chain. These endpoints let anyone browse
+ads and let a maker prepare every change to their own. See [Liquidity ads](/v3/concepts/liquidity-ads)
+for the concept.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/ads` | none | Browse ads, filtered and cursor-paginated |
+| `GET /v1/ads/mine` | user | Your own ads, including inactive and closed ones |
+| `GET /v1/ads/:id` | none | One ad |
+| `POST /v1/ads/create` | user | Get the `createAd` call for a new ad |
+| `POST /v1/ads/:id/fund` | user | Get the `fundAd` call to add to the pool |
+| `POST /v1/ads/:id/withdraw` | user | Get the `withdrawFromAd` call to take funds out |
+| `POST /v1/ads/:id/action-data` | user | Fetch the pending create or fund call again |
+| `POST /v1/ads/:id/confirm` | user | Record that a create, fund, withdraw or close landed |
+| `PATCH /v1/ads/:id/update` | user | Change limits and metadata, or pause and resume |
+| `POST /v1/ads/:id/close` | user | Get the `closeAd` call to close the ad and pay out its balance |
+
+## Who may act on an ad
+
+Every write on an ad passes the same check:
+
+1. You must have a signed-in wallet of the ad chain's kind (`EVM` or `STELLAR`). Otherwise the
+   relayer answers `403` with `No STELLAR wallet linked — connect and link the matching wallet to continue`
+   (or `EVM`).
+2. If the ad's creator is that wallet, you may act (`creatorKind: "WALLET"`).
+3. Otherwise the creator must be an account you linked (a Stellar agent account, or an EVM custody
+   account, see [Accounts](/v3/api/accounts)), and the chain must say right now that its owner is
+   your signed-in wallet. The owner is read from the chain on every write.
+
+| Status | Message | When |
+| --- | --- | --- |
+| `403` | `Unauthorized` | The creator is not your wallet and not an account you linked |
+| `403` | `Unauthorized — the account's on-chain owner is no longer your signed-in wallet` | The linked account changed owner |
+| `503` | `The account's owner could not be read from the chain — retry` | The chain did not answer |
+
+`GET /v1/ads/mine` uses a lighter rule: your stored wallets and links, with no chain read.
+
+### Agent-account makers
+
+A maker can run an ad through an agent account instead of a wallet (see [Agents](/v3/concepts/agents)).
+Then `creatorKind` is `STELLAR_AGENT_ACCOUNT` or `EVM_CUSTODY_ACCOUNT`, `creator` is the account and
+`authorizer` is its owner, your signed-in wallet. The wallet calls the account's own functions rather
+than the `AdManager` directly: `create_ad`, `fund_ad` and `call` on Stellar, `createAdFunded`,
+`fundAdFunded` and `execute` on EVM. Calls that move money pay from the wallet into the escrow in the
+same transaction. The account never holds funds.
+
+## Ad statuses
+
+| Status | Meaning | Takes trades |
+| --- | --- | --- |
+| `INACTIVE` | Created by `POST /v1/ads/create`; the create transaction is not confirmed yet | no |
+| `ACTIVE` | Open on chain and taking trades | yes, while `availableAmount` covers the amount and no change is pending |
+| `PAUSED` | You paused it, or a fund, withdraw or close is pending | no |
+| `EXHAUSTED` | Nothing is free to trade | no |
+| `CLOSED` | Closed on chain, or a create that never landed | no |
+
+The read endpoints show `EXHAUSTED` for any ad that is not `INACTIVE` or `CLOSED` and has
+`availableAmount` `0`. The `status` filter, and the trade path, use the stored status.
+
+A fund, withdraw or close on an `ACTIVE` ad pauses it at once, so no trade starts against a pool
+that is about to change. When the change confirms, the ad goes back to its earlier status (or to
+`EXHAUSTED` after a withdraw that leaves nothing free, or `CLOSED` after a close). If the change never
+lands, the relayer restores the earlier status. A create that never lands ends as `CLOSED`.
+
+## What the relayer returns, and what the wallet sends
+
+The relayer signs nothing for an ad. Each write returns the contract call's arguments, shaped for the
+ad chain. Your wallet builds and sends the transaction, and the relayer checks the chain afterwards.
+
+| Action | EVM `AdManager` | Stellar `ad-manager` |
+| --- | --- | --- |
+| create | `createAd(adId, adToken, initialAmount, orderChainId, adRecipient, settlementSigner)`. `NATIVE`: send `initialAmount` as value. `ERC20`: approve the `AdManager` first | `create_ad(creator, ad_id, ad_token, initial_amount, order_chain_id, ad_recipient, settlement_signer)` |
+| fund | `fundAd(adId, amount)` | `fund_ad(ad_id, amount)` |
+| withdraw | `withdrawFromAd(adId, amount, to)` | `withdraw_from_ad(ad_id, amount, to)` |
+| close | `closeAd(adId, to)`, pays the whole balance to `to` | `close_ad(ad_id, to)` |
+
+`adId` is a UUID the relayer picks at create. It is both the relayer's id and the on-chain ad id.
+
+### The settlement signer
+
+Every ad names a **settlement signer**: the account whose BLS key co-signs settlements for the maker
+(see [Settlement keys](/v3/concepts/settlement-keys)). It defaults to the creator. An agent account
+holds no key, so an ad created from one must name a signer. The signer must hold a usable key on the
+ad chain's registry when you create the ad, or the `AdManager` refuses it on chain. To re-point it
+later, the maker calls `setSettlementSigner(adId, identity)` (`set_settlement_signer` on Stellar)
+directly; there is no relayer route for it.
+
+## Browse ads
+
+`GET /v1/ads` lists ads, ordered by id. Pass `nextCursor` as `cursor` for the next page.
+
+```json
+// query parameters, all optional
+{
+  "routeId": "2f3a4b5c-6d7e-4f80-9a1b-2c3d4e5f6a7b",
+  "creatorAddress": "0x8f14…6078",        // or creatorAddresses: a list, repeated or comma-separated
+  "adChainId": 11155111,
+  "orderChainId": 1000002,
+  "adTokenId": "7e8f9a0b-…",
+  "orderTokenId": "9c0d1e2f-…",
+  "status": "ACTIVE",                      // ACTIVE | PAUSED | EXHAUSTED | CLOSED, the stored status
+  "routeStatus": "ACTIVE",                 // ACTIVE | RETIRED | ALL
+  "cursor": "…",
+  "limit": 25                              // 1 to 100; anything else means 25
+}
+```
+
+- `routeStatus` defaults to `ACTIVE` when you browse, so ads on retired routes are hidden. With a
+  creator filter it defaults to `ALL`, so a maker still sees an ad on a retired route to withdraw
+  from and close it.
+- With no `status`, inactive and closed ads are listed too. A marketplace should pass
+  `status=ACTIVE` and hide rows whose `availableAmount` is `0`.
+
+```json
+{
+  "data": [
+    {
+      "id": "b693ab22-5e73-47e8-9937-1d4459b8c081",
+      "creatorAddress": "0x8f148F7aCCf2A2E6F21426741610619aF5856078",
+      "creatorKind": "WALLET",                 // WALLET | STELLAR_AGENT_ACCOUNT | EVM_CUSTODY_ACCOUNT
+      "routeId": "2f3a4b5c-6d7e-4f80-9a1b-2c3d4e5f6a7b",
+      "adTokenId": "7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b",
+      "orderTokenId": "9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f",
+      "poolAmount": "5000000000000000000",     // the escrowed balance, smallest unit
+      "availableAmount": "4000000000000000000",// poolAmount less every open trade hold
+      "minAmount": "100000000000000000",
+      "maxAmount": "2000000000000000000",
+      "status": "ACTIVE",
+      "routeStatus": "ACTIVE",
+      "metadata": { "title": "ETH to Stellar, fast" },
+      "adToken": { "name": "Ether", "symbol": "ETH", "address": "0xeeee…eeee", "decimals": 18, "chainId": "11155111", "chainKind": "EVM", "kind": "NATIVE", "assetIssuer": null },
+      "orderToken": { "name": "Wrapped Ether (Stellar)", "symbol": "ETH", "address": "0x4d5e…2b3c", "decimals": 18, "chainId": "1000002", "chainKind": "STELLAR", "kind": "SEP41", "assetIssuer": null },
+      "createdAt": "2026-09-20T09:00:00.000Z",
+      "updatedAt": "2026-09-21T14:30:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | validation | A query field is invalid, for example `routeId` is not a UUID or `status` is unknown |
+
+## My ads
+
+`GET /v1/ads/mine` takes the same query and returns the same shape, limited to ads whose creator is
+one of your wallets or linked accounts. Any creator filter you send is replaced. This is where you see
+your own `INACTIVE` and `CLOSED` ads, and ads on retired routes (send `routeStatus=ACTIVE` to hide
+them). With no wallet and no link you get `{ "data": [], "nextCursor": null }`.
+
+## One ad
+
+`GET /v1/ads/:id` returns one ad in the same shape as a list row. An ad on a retired route still
+answers, with `routeStatus: "RETIRED"`: its maker can fund, withdraw and close it, but it takes no new
+trades.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `Validation failed (uuid is expected)` | `:id` is not a UUID |
+| `404` | `Ad not found` | No ad with that id |
+
+## Create an ad
+
+`POST /v1/ads/create` checks the route, the amounts, the creator and the settlement signer, writes the
+ad as `INACTIVE` and returns the `createAd` call.
+
+```json
+{
+  "routeId": "2f3a4b5c-6d7e-4f80-9a1b-2c3d4e5f6a7b",
+  "creatorDstAddress": "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", // where you are paid, on the ORDER chain
+  "fundAmount": "5000000000000000000",   // first deposit, smallest ad-token unit
+  "minAmount": "100000000000000000",     // optional; send with maxAmount
+  "maxAmount": "2000000000000000000",    // optional; at most fundAmount
+  "metadata": { "title": "ETH to Stellar, fast" },
+  "creator": "C…",                        // optional; default: your wallet on the ad chain
+  "settlementSigner": "G…"                // optional; default: the creator. Required for an agent account
+}
+```
+
+`creatorDstAddress` is a payout destination, not an identity, so it need not be a wallet you linked.
+Send `minAmount` and `maxAmount` together or not at all: `minAmount` alone is refused.
+
+```json
+{
+  "chainId": "11155111",                 // the ad chain
+  "contractAddress": "0x3B2f…3A4b",      // the AdManager to call
+  "adId": "b693ab22-5e73-47e8-9937-1d4459b8c081",
+  "adToken": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "initialAmount": "5000000000000000000",
+  "orderChainId": "1000002",
+  "adRecipient": "0x62fc…05f7",          // bytes32: creatorDstAddress, left-padded
+  "settlementSigner": "0x0000…6078",     // bytes32
+  "chainKind": "EVM",
+  "creator": "0x8f148F7aCCf2A2E6F21426741610619aF5856078",
+  "authorizer": "0x8f148F7aCCf2A2E6F21426741610619aF5856078", // the wallet that signs
+  "creatorKind": "WALLET"
+}
+```
+
+Send the call, then [confirm it](#confirm-a-landed-transaction).
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | validation | An unknown key, a bad UUID, or an amount that is not all digits |
+| `404` | `Route not found` | The route does not exist |
+| `409` | `route-retired` | The route is retired and takes no new ads |
+| `400` | `Route must be cross-chain` | Both tokens are on one chain |
+| `400` | `fundAmount must be > 0` | `fundAmount` is `0` |
+| `400` | `maxAmount must be greater than minAmount` | `maxAmount` is below `minAmount`, or `minAmount` came without `maxAmount` |
+| `400` | `fundAmount must be greater than maxAmount` | `fundAmount` is below `maxAmount` |
+| `400` | `Invalid creatorDstAddress` | Not an address on the order chain, or the zero address |
+| `400` | `creator is not an address on the ad chain` | Bad `creator` |
+| `403` / `503` | | The [control check](#who-may-act-on-an-ad) refused the creator |
+| `400` | `This creator is a contract account and holds no key: …` | An agent account with no `settlementSigner` |
+| `400` | `settlementSigner must be an EVM address, a 32-byte hex or a Stellar G… key` | Bad `settlementSigner` |
+| `400` | `Register a settlement key on the ad chain before creating an ad …` | The signer has no usable key |
+| `400` | `The agent policy bound to this creator names settlement signer …` | An agent policy names a different signer |
+| `503` | `Key registry unreachable — retry` | The key registry could not be read |
+
+## Fund and withdraw
+
+`POST /v1/ads/:id/fund` and `POST /v1/ads/:id/withdraw` read the ad on chain, record the pending
+change, pause an `ACTIVE` ad and return the call.
+
+```json
+// fund
+{ "poolAmountTopUp": "1000000000000000000" }
+
+// withdraw
+{
+  "poolAmountWithdraw": "1000000000000000000",
+  "to": "0x8f148f7accf2a2e6f21426741610619af5856078"  // on the AD chain; Stellar: a G… or C… strkey
+}
+```
+
+```json
+{
+  "chainId": "1000002",
+  "contractAddress": "0x8c0f…ccdd",
+  "adId": "0d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a",
+  "amount": "50000000",
+  "to": "0x62fc…05f7",                    // withdraw only; 0x-64 on Stellar
+  "toStrkey": "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H", // Stellar withdraw only
+  "chainKind": "STELLAR",
+  "creator": "CDAZH3BGNLL5VIK24OB2SSBAHFWI2ITUW24EQYJ3DY5I4IZIMTOOH6QJ",
+  "authorizer": "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+  "creatorKind": "STELLAR_AGENT_ACCOUNT"
+}
+```
+
+You can withdraw only what is free on chain: the balance, less locked amounts, less trade
+reservations not yet locked.
+
+Only one change can be pending per ad. If an earlier change already landed but was never confirmed,
+the answer is `{ "pendingConfirmation": true, "chainKind": "EVM" }`: call
+[confirm](#confirm-a-landed-transaction), then send the request again.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `404` | `Ad not found` | No such ad |
+| `403` / `503` | | The [control check](#who-may-act-on-an-ad) refused |
+| `409` | `ad-closed` | The ad is `CLOSED` |
+| `409` | `ad-update-awaiting-confirmations` | An earlier change landed but is not deep enough yet |
+| `400` | `Ad has pending update; please wait a few minutes and try again` | An earlier change is still pending |
+| `400` | `poolAmountTopUp must be > 0` / `poolAmountWithdraw must be > 0` | Amount is `0` |
+| `400` | `Insufficient available balance` | Withdraw is more than the free amount |
+| `400` | `Invalid withdraw destination (Stellar: a G… or C… strkey)` | Bad `to` |
+| `400` | `Ad not found on chain` | The ad is not on chain |
+| `503` | `Ad chain unreadable — retry` | The ad chain could not be read |
+
+## Fetch the pending call again
+
+`POST /v1/ads/:id/action-data` re-serves the arguments of a pending **create** or **fund**, for a
+wallet popup that was closed. It takes no body and makes no new pending record. A pending withdraw or
+close is not re-served: wait for it to clear and start again.
+
+```json
+{
+  "action": "fund",                       // create | fund
+  "chainId": "11155111",
+  "contractAddress": "0x3B2f…3A4b",
+  "adId": "b693ab22-5e73-47e8-9937-1d4459b8c081",
+  "amount": "1000000000000000000",        // fund only; a create returns the createAd fields instead
+  "creator": "0x8f148F7aCCf2A2E6F21426741610619aF5856078",
+  "authorizer": "0x8f148F7aCCf2A2E6F21426741610619aF5856078",
+  "creatorKind": "WALLET",
+  "chainKind": "EVM"
+}
+```
+
+It does not check whether the call already landed, and sending a landed create again reverts. If the
+user may have signed, call confirm first.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `404` | `No pending action for this ad` | Nothing is pending |
+| `403` / `503` | | The [control check](#who-may-act-on-an-ad) refused |
+| `409` | `This pending action cannot be re-served — wait for it to clear, then re-initiate` | The pending action is a withdraw or close |
+
+## Confirm a landed transaction
+
+`POST /v1/ads/:id/confirm` checks the chain against the pending change. The relayer does not look up
+your transaction: `txHash` is optional and not read, so `{}` is a valid body.
+
+```json
+{ "txHash": "0x123f…8a7e" }   // optional
+```
+
+```json
+{ "adId": "b693ab22-5e73-47e8-9937-1d4459b8c081", "success": true }
+```
+
+A create has landed when the ad exists on chain with the right maker, signer and balance. A fund or
+withdraw has landed when the `AdManager`'s own event for this ad and amount appears after the quote;
+on EVM it must be `EVM_CONFIRMATIONS` blocks deep. A close has landed when the ad is no longer open. On
+confirm the relayer copies the chain's balance into `poolAmount` and applies the recorded status.
+
+If a create landed after the relayer gave up on it and closed the row, confirm still finds it on chain
+and restores the ad to `ACTIVE`.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `409` | `ad-update-awaiting-confirmations` | The event is not deep enough; `confirmationsRemaining` says how many blocks to wait |
+| `409` | `ad-update-unverifiable` | The chain's RPC can no longer serve every block since the quote; the relayer clears the change and re-reads the pool |
+| `400` | `Invalid request; please try again` | The change has not landed |
+| `404` | `Ad update log not found` | Nothing is pending and there is no late create to restore |
+| `403` / `503` | | The [control check](#who-may-act-on-an-ad) refused |
+| `503` | `Ad chain unreadable — retry` | The ad chain could not be read |
+
+A change that is never confirmed is not lost. The relayer checks stale pending changes on chain and
+applies or clears them itself.
+
+## Update limits, metadata or pause
+
+`PATCH /v1/ads/:id/update` changes relayer-side settings. There is no transaction and the change takes
+effect at once. The on-chain ad has no minimum, maximum or pause; these settings shape what the relayer
+offers bridgers.
+
+```json
+{
+  "status": "PAUSED",                     // optional: ACTIVE | PAUSED
+  "minAmount": "100000000000000000",      // optional
+  "maxAmount": "3000000000000000000",     // optional
+  "metadata": { "title": "ETH to Stellar, fast" } // optional; replaces the whole object
+}
+```
+
+```json
+{
+  "id": "b693ab22-5e73-47e8-9937-1d4459b8c081",
+  "status": "PAUSED",
+  "creatorAddress": "0x8f148F7aCCf2A2E6F21426741610619aF5856078",
+  "minAmount": "100000000000000000",
+  "maxAmount": "3000000000000000000",
+  "metadata": { "title": "ETH to Stellar, fast" }
+}
+```
+
+Limits and metadata are editable in every status. A `status` change is refused on an `INACTIVE` or
+`CLOSED` ad. On an `EXHAUSTED` ad the relayer reads the chain and allows it only when funds are free
+there. The relayer does not check `minAmount ≤ maxAmount` here, so check it in your form, and offer
+pause and resume only on `ACTIVE` or `PAUSED` ads with no pending change.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | validation | For example `status: "CLOSED"` |
+| `404` | `Ad not found` | No such ad |
+| `403` / `503` | | The [control check](#who-may-act-on-an-ad) refused |
+| `400` | `Cannot update status when ad is inactive` | `status` on an `INACTIVE` ad |
+| `409` | `ad-closed` | `status` on a `CLOSED` ad |
+| `409` | `ad-exhausted` | `status` on an `EXHAUSTED` ad with nothing free; fund it first |
+| `503` | `Ad chain unreadable — retry` | `status` on an `EXHAUSTED` ad and the chain did not answer |
+
+## Close an ad
+
+`POST /v1/ads/:id/close` returns the `closeAd` call, which pays the whole on-chain balance to `to`.
+Close is refused while any trade holds liquidity on the ad, locked on chain or reserved.
+
+```json
+{ "to": "0x8f148f7accf2a2e6f21426741610619af5856078" }  // on the AD chain; Stellar: a G… or C… strkey
+```
+
+```json
+{
+  "chainId": "11155111",
+  "contractAddress": "0x3B2f…3A4b",
+  "adId": "b693ab22-5e73-47e8-9937-1d4459b8c081",
+  "to": "0x8f148F7aCCf2A2E6F21426741610619aF5856078",
+  "chainKind": "EVM",
+  "creator": "0x8f148F7aCCf2A2E6F21426741610619aF5856078",
+  "authorizer": "0x8f148F7aCCf2A2E6F21426741610619aF5856078",
+  "creatorKind": "WALLET"
+}
+```
+
+Like fund and withdraw, it can answer `{ "pendingConfirmation": true, … }` when an earlier change
+landed unconfirmed, and it shares their pending-change and chain refusals.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `Ad is already closed` | Already `CLOSED` |
+| `400` | `Ad has active locks and cannot be closed` | A trade holds liquidity |
+| `400` | `Invalid close destination (Stellar: a G… or C… strkey)` | Bad `to` |
+
+## Liquidity held by trades
+
+When a bridger [creates a trade](/v3/api/trades#create-a-trade), the relayer holds that amount of the
+ad. `availableAmount` drops by it, a withdraw cannot take it, and close is refused. The hold ends when
+the trade settles or is cancelled, or when an unfunded reservation expires after 30 minutes. Because
+the relayer copies the chain's balance after each settlement, `poolAmount` can change without any
+action from you: a completed trade lowers it.

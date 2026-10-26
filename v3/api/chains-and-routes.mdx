@@ -1,0 +1,268 @@
+---
+title: "Chains and routes"
+description: "The chains, tokens and trade routes the relayer serves, and each route's clocks"
+---
+
+Before you post an ad or start a trade, read the catalogue: which chains the relayer serves, which
+tokens live on them, and which token pairs can be traded across. These six read-only endpoints need
+no sign-in.
+
+A **chain** row carries the contract addresses your wallet calls. A **token** row says what kind of
+asset it is and how many decimals it has. A **route** is one direction of trade: an *ad token* on
+the ad chain, which the maker escrows in the `AdManager`, paired with an *order token* on the order
+chain, which the bridger escrows in the `OrderPortal`. Routes are one-way; the reverse direction is
+a separate route. See [Makers and bridgers](/v3/concepts/makers-and-bridgers) and
+[Supported networks](/v3/concepts/supported-networks).
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/chains` | none | list chains with their contract addresses |
+| `GET /v1/chains/:chainId` | none | one chain, by its decimal chain id |
+| `GET /v1/tokens` | none | list tokens, filtered by chain, symbol or address |
+| `GET /v1/tokens/:id` | none | one token |
+| `GET /v1/routes` | none | list routes with both tokens |
+| `GET /v1/routes/:id` | none | one route, with its current clocks |
+
+Every list is cursor-paged: `limit` 1 to 100, default 25, and pass `nextCursor` back as `cursor`
+([Pagination](/v3/api/overview#pagination)). The catalogue changes rarely, so cache it instead of
+refetching on every render.
+
+## List chains
+
+`GET /v1/chains`
+
+| Query | Meaning |
+| --- | --- |
+| `name` | case-insensitive substring of the chain name |
+| `chainId` | exact decimal chain id |
+| `cursor`, `limit` | paging |
+
+```json
+{
+  "data": [
+    {
+      "name": "Sepolia",
+      "chainId": "11155111",
+      "kind": "EVM",                                   // "EVM" or "STELLAR"; picks the wallet
+      "adManagerAddress": "0x3B2f…3A4b",               // the maker's escrow
+      "orderPortalAddress": "0x9aC1…1829",             // the bridger's escrow
+      "merkleManagerAddress": "0x1F2e…d0C1",
+      "merkleManagerDeployBlock": "4823001",
+      "blsKeyRegistryAddress": "0x5555…5432",          // null: no ads can be created on this chain
+      "rootAnchorAddress": "0x6666…5432",
+      "disputeManagerAddress": "0x7777…5432",          // null: disputes are unavailable here
+      "agentPolicyAddress": null,                      // EVM only
+      "agentAccountWasmHash": null,                    // Stellar only: the custody-account wasm hash
+      "custodyAccountFactory": "0x9999…5432",          // EVM only: where custody accounts come from
+      "createdAt": "2026-09-01T10:00:00.000Z",
+      "updatedAt": "2026-09-20T08:12:44.000Z"
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Stellar contract addresses come back as `0x` + 64 hex (the 32-byte contract id). Convert them to a
+`C…` strkey for display.
+
+Hide a chain as an ad chain when `blsKeyRegistryAddress` is `null`: creating an ad there is refused.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | a query field failed validation, for example `limit must not be greater than 100` |
+| `400` | | `chainId` is not a whole number |
+
+## Get one chain
+
+`GET /v1/chains/:chainId`. `:chainId` is the decimal chain id, such as `1000002`, not a UUID. The
+response is one chain object as in the list.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `chainId must be a decimal string` |
+| `404` | | `Chain not found` |
+
+## List tokens
+
+`GET /v1/tokens`
+
+| Query | Meaning |
+| --- | --- |
+| `chainId` | decimal chain id. An id that matches no chain is ignored and you get every chain's tokens, so take it from `GET /v1/chains` |
+| `chainUid` | the chain's internal UUID |
+| `symbol` | case-insensitive substring |
+| `address` | exact token address |
+| `cursor`, `limit` | paging |
+
+```json
+{
+  "data": [
+    {
+      "id": "4b7d1c2e-5f60-4a71-8b92-c3d4e5f60718",   // what routes, ads and the faucet refer to
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "address": "0x5e6f…3c4d",                       // EIP-55 on EVM, 0x + 64 hex on Stellar
+      "decimals": 7,
+      "kind": "SAC",
+      "assetIssuer": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", // SAC only
+      "createdAt": "2026-09-01T10:00:00.000Z",
+      "updatedAt": "2026-09-01T10:00:00.000Z",
+      "chain": { "id": "0c1d2e3f-4a5b-4c6d-8e7f-901a2b3c4d5e", "name": "Stellar Testnet", "chainId": "1000002", "kind": "STELLAR" }
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+### Token kinds
+
+| `kind` | Chain | What it is | How it is escrowed |
+| --- | --- | --- | --- |
+| `NATIVE` | EVM | the chain's gas coin; `address` is `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` | sent as `msg.value`, which must equal the amount exactly |
+| `ERC20` | EVM | an ERC-20 contract | `transferFrom`, so the wallet approves the escrow first |
+| `NATIVE` | Stellar | XLM | a transfer the escrow pulls, covered by the wallet's one auth entry |
+| `SAC` | Stellar | a classic issued asset behind its Stellar Asset Contract; only this kind has `assetIssuer` | the same pulled transfer; the payer needs a trustline to the asset |
+| `SEP41` | Stellar | a Soroban-native token contract | the same pulled transfer |
+
+Amounts everywhere in the API are integer strings in the token's smallest unit. Use `decimals` to
+format them.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | a query field failed validation, for example `chainUid must be a UUID` |
+| `400` | | `chainId` is not a whole number |
+
+## Get one token
+
+`GET /v1/tokens/:id`. `:id` is the token's UUID. The response is one token object as in the list.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `Validation failed (uuid is expected)` |
+| `404` | | `Token not found` |
+
+## List routes
+
+`GET /v1/routes`
+
+| Query | Meaning |
+| --- | --- |
+| `adChainId`, `orderChainId` | decimal chain ids. Used only together: the route must go from the first to the second |
+| `adTokenId`, `orderTokenId` | token UUIDs. When either is given, the chain ids and `symbol` are ignored |
+| `symbol` | exact symbol, case-insensitive. With both chain ids it must match both tokens; on its own it matches either |
+| `status` | `ACTIVE` (default), `RETIRED` or `ALL` |
+| `cursor`, `limit` | paging |
+
+```json
+{
+  "data": [
+    {
+      "id": "2f3a4b5c-6d7e-4f80-9a1b-2c3d4e5f6a7b",   // what POST /v1/ads/create takes as routeId
+      "status": "ACTIVE",
+      "metadata": {},
+      "createdAt": "2026-09-01T10:00:00.000Z",
+      "updatedAt": "2026-09-01T10:00:00.000Z",
+      "adToken": {                                     // on the ad chain, escrowed by the maker
+        "id": "7e8f9a0b-1c2d-4e3f-9a4b-5c6d7e8f9a0b",
+        "symbol": "ETH",
+        "name": "Ether",
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", // lowercase on EVM here
+        "decimals": 18,
+        "kind": "NATIVE",
+        "assetIssuer": null,
+        "chain": { "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", "name": "Sepolia", "chainId": "11155111", "kind": "EVM" }
+      },
+      "orderToken": {                                  // on the order chain, escrowed by the bridger
+        "id": "9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f",
+        "symbol": "ETH",
+        "name": "Wrapped Ether (Stellar)",
+        "address": "0x4d5e…2b3c",
+        "decimals": 18,
+        "kind": "SEP41",
+        "assetIssuer": null,
+        "chain": { "id": "0c1d2e3f-4a5b-4c6d-8e7f-901a2b3c4d5e", "name": "Stellar Testnet", "chainId": "1000002", "kind": "STELLAR" }
+      }
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Each route already carries both tokens with their `decimals`, `kind` and chain, so a pair picker
+needs no further call. To fill one, list the chains once, then list the routes with **both**
+`adChainId` and `orderChainId`.
+
+### Route statuses
+
+| `status` | Meaning |
+| --- | --- |
+| `ACTIVE` | open for new ads and trades |
+| `RETIRED` | takes no new ads or trades (they are refused with `409 route-retired`); ads and trades already on it carry on, fund, withdraw, close and settle as before |
+
+The list shows only `ACTIVE` routes unless you pass `status`. Send `status=ALL` to show a maker
+whose ad sits on a retired route.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | a query field failed validation, for example `adChainId must match /^\d+$/ regular expression` |
+
+## Get one route
+
+`GET /v1/routes/:id`. Answers a retired route too, so an ad or trade on it can still show its
+route. The response is the route object as in the list, plus `timing`: the route's current clocks,
+read from both escrows on chain.
+
+```json
+{
+  "id": "2f3a4b5c-6d7e-4f80-9a1b-2c3d4e5f6a7b",
+  "status": "ACTIVE",
+  "metadata": {},
+  "createdAt": "2026-09-01T10:00:00.000Z",
+  "updatedAt": "2026-09-01T10:00:00.000Z",
+  "adToken": { /* as in the list */ },
+  "orderToken": { /* as in the list */ },
+  "timing": {                       // null when the chains could not be read; try again later
+    "ad": { "version": "2", "minWindow": "3600", "buffer": "1800", "margin": "300", "claimStagger": "0" },
+    "order": { "version": "1", "minWindow": "3600", "buffer": "1800", "margin": "300", "claimStagger": "600" }
+  }
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `Validation failed (uuid is expected)` |
+| `404` | | `Route not found` |
+
+A chain read that fails is not an error: you get the route with `timing: null`, or with one half
+`null`. The relayer keeps a complete answer for up to 10 minutes and a failed read for 1 minute.
+
+## The route's clocks
+
+Every trade on a route runs against a set of timers that live on chain, set per peer chain on each
+escrow. [Deadlines and clocks](/v3/concepts/deadlines-and-clocks) explains what they do to a trade.
+`timing` holds two sets:
+
+- `ad`: the `AdManager` on the ad chain, for this order chain (the primary's window);
+- `order`: the `OrderPortal` on the order chain, for this ad chain (the follower's stagger).
+
+Each value is in seconds, as a decimal string:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | the current timing version. Each change writes a new version; an order keeps the version it was created or locked under |
+| `minWindow` | the shortest time from now to the order's deadline that a create or lock accepts |
+| `buffer` | the primary's window to present the co-signed unlock after the deadline; 30 minutes to 1 day |
+| `margin` | how long before that window ends the primary stops taking the co-signed unlock |
+| `claimStagger` | how long before the deadline the follower stops taking the co-signed unlock; `0` means off |
+
+`timing` is the route's **current** version, which is what a new trade is held to. A trade that is
+already open keeps its own version, so for a live trade read its own fields (`deadline`,
+`claimFinalizeAt` and the others on [Trades](/v3/api/trades)) rather than the route's.
+
+A set that was never configured comes back `null`. On chain, every create and lock on such a route
+reverts with `RouteTiming__NotSet`, so no trade can start on it.
+
+The relayer uses the clocks to pick a new order's deadline: 24 hours by default, longer when the
+route's windows need it, and never more than 7 days less 10 minutes out.

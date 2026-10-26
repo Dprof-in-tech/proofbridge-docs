@@ -1,0 +1,345 @@
+---
+title: "Authentication"
+description: "Sign in with an EVM or Stellar wallet, refresh and end the session, and link a second wallet"
+---
+
+You sign in by proving you own a wallet: the relayer makes a challenge, your wallet signs it, and
+the relayer answers with an access token and a refresh token. An EVM wallet signs a
+[Sign-In with Ethereum](https://eips.ethereum.org/EIPS/eip-4361) (SIWE) message. A Stellar wallet
+co-signs a [SEP-10](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md)
+challenge transaction.
+
+A user holds at most one EVM wallet and one Stellar wallet. The first wallet you sign in with
+creates the user; you attach the other with `POST /v1/auth/link` while signed in. Signing in later
+with either wallet lands on the same user.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `POST /v1/auth/challenge` | none | get a SIWE nonce or a SEP-10 transaction to sign |
+| `POST /v1/auth/login` | none | exchange the signed challenge for tokens |
+| `POST /v1/auth/refresh` | refresh token | get the next token pair |
+| `POST /v1/auth/logout` | refresh token | end the session |
+| `POST /v1/auth/link` | user | attach your wallet on the other chain kind |
+| `GET /v1/user/me` | user | your user and the wallets linked to it |
+
+Challenge, login and link use the strict rate limit (10 a minute per IP). Refresh and logout allow
+10 a minute per session.
+
+## Tokens and sessions
+
+| Token | Lifetime | Where it goes |
+| --- | --- | --- |
+| access | 15 minutes | `Authorization: Bearer <access>` on every `user` route |
+| refresh | 14 days from its last use, never past 30 days from sign-in | the body of refresh and logout, or the `pb_refresh` cookie in a browser |
+
+- **A refresh token works once.** Each refresh spends the current token and hands you the next.
+  Sending a spent token again within 30 seconds returns the same next pair (a retry after a lost
+  answer, or a second tab). After that, the relayer treats it as a stolen copy, ends the whole
+  session and answers `401 refresh-reused`.
+- **Refresh once, share the result.** If several calls hit a `401` at the same time, run one
+  refresh and let every waiting call reuse it. Better, refresh a little before the access token's
+  `exp`, at a random point so clients signed in together do not refresh together.
+- **Logout ends the refresh tokens at once.** An access token already issued keeps working until its
+  own 15 minutes run out, so delete it on your side.
+
+### Browser or server client
+
+The relayer decides where the refresh token travels by looking at the request:
+
+- **Browser** (the request carries `Origin` or `Sec-Fetch-Site`, which page scripts cannot remove):
+  the refresh token is set as an HttpOnly cookie, `pb_refresh` on `Path=/v1/auth`, and left out of
+  the JSON body. Login, refresh and logout must come from the app's origin with an
+  `X-Requested-With` header, or they are refused with `403 csrf-refused`. Send them with
+  credentials (`credentials: "include"` in `fetch`, `withCredentials: true` in axios), or the
+  browser drops the cookie. A browser refresh or logout sends `{}` as the body.
+- **Server client** (a bot, a script, an agent; Node's `fetch` counts): both tokens come back in
+  the body, and you send the refresh token in the body of refresh and logout. No cookie is read or
+  set.
+
+## Get a challenge
+
+`POST /v1/auth/challenge`
+
+```json
+{
+  "chainKind": "EVM",                                      // "EVM" or "STELLAR"
+  "address": "0x5C08e1A05e2E0913dDE6DDa25d81055C1cd80Ca2"  // EVM: any case. Stellar: a G… strkey
+}
+```
+
+EVM response. Build the SIWE message from `domain`, `uri`, `nonce` and the checksummed `address`:
+
+```json
+{
+  "chainKind": "EVM",
+  "address": "0x5C08e1A05e2E0913dDE6DDa25d81055C1cd80Ca2", // EIP-55 checksummed
+  "nonce": "9c2e4b7f1a6d4e0b8f3c5a2d7e1b9c40",
+  "domain": "app.pfbridge.xyz",                           // the SIWE domain the relayer requires
+  "uri": "https://app.pfbridge.xyz",                      // the SIWE URI the relayer requires
+  "expiresAt": "2026-10-04T09:05:12.000Z"                 // 5 minutes from now
+}
+```
+
+Stellar response. The wallet signs `transaction` exactly as it is, with `networkPassphrase`. Do not
+add operations or change anything:
+
+```json
+{
+  "chainKind": "STELLAR",
+  "address": "GC5HEGJF6JNVJZKWTAGAKCMJR67FWULNNCJXQAYYTSX6ZXFT7CLYG55S",
+  "transaction": "AAAAAgAAAADVi3Jd…",        // the server-signed SEP-10 challenge, base64 XDR
+  "networkPassphrase": "Test SDF Network ; September 2015",
+  "expiresAt": "2026-10-04T09:05:12.000Z"
+}
+```
+
+The SEP-10 transaction has sequence number 0, so it can never be submitted to the network.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `Invalid EVM format`: not an EVM address, or a mixed-case address with a bad checksum |
+| `400` | | `Invalid Stellar account ID — expected G-strkey`: a contract (`C…`) address is refused too |
+| `400` | | body failed validation |
+| `429` | | over the strict limit |
+
+## Log in
+
+`POST /v1/auth/login`. Send it within 5 minutes of the challenge.
+
+```json
+{
+  "chainKind": "EVM",
+  "message": "app.pfbridge.xyz wants you to sign in with your Ethereum account:\n0x5C08e1A05e2E0913dDE6DDa25d81055C1cd80Ca2\n\nSign in to ProofBridge.\n\nURI: https://app.pfbridge.xyz\nVersion: 1\nChain ID: 11155111\nNonce: 9c2e4b7f1a6d4e0b8f3c5a2d7e1b9c40\nIssued At: 2026-10-04T09:00:12.000Z",
+  "signature": "0x8b20f7…701c"   // personal_sign over the message
+}
+```
+
+```json
+{
+  "chainKind": "STELLAR",
+  "transaction": "AAAAAgAAAADVi3Jd…"   // the challenge, co-signed by the wallet, base64 XDR
+}
+```
+
+Response `201`:
+
+```json
+{
+  "user": { "id": "3e9d1c55-8a2b-4c7d-b0f4-6a1e2d3c4b5a", "username": "brave-alice" },
+  "tokens": {
+    "access": "eyJhbGciOiJIUzI1NiIs…",
+    "refresh": "eyJhbGciOiJIUzI1NiIs…"   // server clients only; a browser gets the pb_refresh cookie
+  }
+}
+```
+
+What the relayer checks:
+
+- **EVM.** The message parses as SIWE with a checksummed address, its domain and URI match the
+  challenge's exactly, and the signature verifies as a plain wallet (EOA) signature. Smart-contract
+  wallets (EIP-1271) cannot sign in. The nonce must belong to that address, be unused, and be no
+  more than 60 seconds past its 5 minutes.
+- **Stellar.** The transaction is this relayer's challenge for this network, unchanged, and carries
+  a signature by the account's own master key. An account whose master key was replaced by other
+  signers cannot sign in. Each signed challenge works once.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `Invalid SIWE message`: not SIWE, or the address in it is not checksummed |
+| `400` | | `Wrong domain` or `Wrong URI`: build the message from the challenge's `domain` and `uri` |
+| `400` | | `Expired message` or `Not yet valid`: check the device clock |
+| `400` | | `Unknown nonce`, `Nonce already used` or `Nonce expired`: get a new challenge |
+| `400` | | `message and signature required for EVM` or `transaction required for STELLAR` |
+| `401` | | `Bad signature`: the signature does not match the wallet, or it is a smart-contract wallet |
+| `401` | | `Invalid Stellar challenge transaction`: wrong network, changed, or expired |
+| `401` | | `Stellar challenge signature invalid`: not signed by the account's master key |
+| `401` | | `Challenge already used` |
+| `403` | `csrf-refused` | a browser request from another origin, or without `X-Requested-With` |
+| `429` | | over the strict limit |
+
+## Refresh
+
+`POST /v1/auth/refresh`
+
+A server client sends its refresh token in the body:
+
+```json
+{ "refresh": "eyJhbGciOiJIUzI1NiIs…" }
+```
+
+A browser sends `{}` with credentials; the cookie carries the token:
+
+```http
+POST /v1/auth/refresh
+Origin: https://app.pfbridge.xyz
+X-Requested-With: XMLHttpRequest
+Cookie: pb_refresh=<refresh token>
+```
+
+Response `200`. Store the new pair; the old refresh token is now spent. A browser gets `access` only
+and a new `pb_refresh` cookie.
+
+```json
+{
+  "tokens": {
+    "access": "eyJhbGciOiJIUzI1NiIs…",
+    "refresh": "eyJhbGciOiJIUzI1NiIs…"   // server clients only
+  }
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `refresh` is not a string, or shorter than 10 characters |
+| `401` | `refresh-invalid` | no token, a malformed or access token, or the user no longer exists |
+| `401` | `refresh-expired` | past 14 days idle or 30 days since sign-in |
+| `401` | `refresh-reused` | a spent token sent after the 30-second grace; the whole session is now ended |
+| `401` | `refresh-revoked` | the session was logged out, or ended for reuse |
+| `403` | `csrf-refused` | a browser request from another origin, or without `X-Requested-With` |
+| `429` | | more than 10 refreshes a minute for this session |
+
+On any `401` here, sign the user out and start again at the challenge. A `429` or a `5xx` is not a
+sign-out: keep the tokens and try again later. A `401` also clears a browser's cookie.
+
+## Log out
+
+`POST /v1/auth/logout`. Takes the same body as refresh (a server client's refresh token, or `{}`
+from a browser). An expired refresh token still works, so you can log out after the access token
+has run out.
+
+Response `204` with no body. Every refresh token of that sign-in stops working; your other sign-ins
+(another browser, another bot) are not touched. Logging out a session that has already ended still
+answers `204`. A browser's cookie is cleared even when the token is refused.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `401` | `refresh-invalid` | no token, a malformed or access token |
+| `403` | `csrf-refused` | a browser request failing the origin check |
+| `429` | | over the per-session limit |
+
+## Link the other wallet
+
+`POST /v1/auth/link`, with your access token. Get a fresh challenge for the wallet you are adding,
+sign it with that wallet, and send the same body as login. Instead of signing you in, the relayer
+attaches the wallet to your user. No new tokens are issued.
+
+```json
+{
+  "chainKind": "STELLAR",
+  "transaction": "AAAAAgAAAADVi3Jd…"   // the new wallet's co-signed challenge
+}
+```
+
+Response `201`:
+
+```json
+{
+  "id": "5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0",
+  "address": "0xba721925f25b54e556980c0509898fbe5b516d68937803189cafecdcb3f89783", // Stellar as 0x + 64 hex
+  "chainKind": "STELLAR",
+  "createdAt": "2026-10-04T09:20:41.330Z"
+}
+```
+
+The challenge is spent before the link rules run, so after a `409` get a new challenge before you
+try another wallet. There is no route to unlink or replace a wallet.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400`, `401` | | any login refusal above |
+| `409` | | `Wallet already linked to this account` |
+| `409` | | `Wallet is already linked to a different account` |
+| `409` | | `Account already has a wallet linked on this chain` |
+| `429` | | over the strict limit |
+
+Linked smart accounts (a Stellar custody account, or an EVM custody account) are a separate thing;
+see [Accounts](/v3/api/accounts).
+
+## Who am I
+
+`GET /v1/user/me`
+
+```json
+{
+  "id": "3e9d1c55-8a2b-4c7d-b0f4-6a1e2d3c4b5a",
+  "createdAt": "2026-10-04T09:00:13.002Z",
+  "updatedAt": "2026-10-04T09:00:13.002Z",
+  "username": "brave-alice",
+  "wallets": [
+    { "address": "0x5C08e1A05e2E0913dDE6DDa25d81055C1cd80Ca2", "chainKind": "EVM", "createdAt": "2026-10-04T09:00:13.002Z" },
+    { "address": "0xba721925f25b54e556980c0509898fbe5b516d68937803189cafecdcb3f89783", "chainKind": "STELLAR", "createdAt": "2026-10-04T09:20:41.330Z" }
+  ]
+}
+```
+
+Use it to decide whether to prompt "Link your Stellar wallet". Many write routes answer `403`
+`No STELLAR wallet linked — connect and link the matching wallet to continue` (or `EVM`) when you
+lack the wallet kind they need.
+
+## JavaScript example
+
+A server-side client signing in with an EVM key, calling a guarded route, refreshing and logging
+out. In a browser, add `credentials: "include"` and an `X-Requested-With` header to the auth calls
+and do not store the refresh token yourself: the `pb_refresh` cookie carries it.
+
+```javascript
+import { Wallet } from "ethers";
+import { SiweMessage } from "siwe";
+
+const API_URL = "https://api-staging.pfbridge.xyz";
+const wallet = new Wallet(process.env.EVM_PRIVATE_KEY);
+
+async function post(path, body, token) {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 204) return null;
+  const json = await res.json();
+  if (!res.ok) throw Object.assign(new Error(json.message), json);
+  return json;
+}
+
+// 1. Get a challenge
+const challenge = await post("/v1/auth/challenge", {
+  chainKind: "EVM",
+  address: wallet.address,
+});
+
+// 2. Build the SIWE message from the challenge and sign it
+const message = new SiweMessage({
+  domain: challenge.domain,
+  uri: challenge.uri,
+  address: challenge.address, // checksummed
+  nonce: challenge.nonce,
+  version: "1",
+  chainId: 11155111,
+  statement: "Sign in to ProofBridge.",
+}).prepareMessage();
+const signature = await wallet.signMessage(message);
+
+// 3. Log in. A server client gets both tokens in the body
+let { tokens } = await post("/v1/auth/login", { chainKind: "EVM", message, signature });
+
+// 4. Call a guarded route
+const me = await fetch(`${API_URL}/v1/user/me`, {
+  headers: { Authorization: `Bearer ${tokens.access}` },
+}).then((r) => r.json());
+
+// 5. Refresh before the access token expires. Keep the new pair: the old refresh token is spent
+({ tokens } = await post("/v1/auth/refresh", { refresh: tokens.refresh }));
+
+// 6. Log out when done
+await post("/v1/auth/logout", { refresh: tokens.refresh });
+```
+
+<Warning>
+  Treat the refresh token like a password. In a browser, let the HttpOnly cookie hold it and keep
+  the access token in memory.
+</Warning>
