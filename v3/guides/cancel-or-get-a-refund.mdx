@@ -3,8 +3,6 @@ title: "Cancel or get a refund"
 description: "What happens when a trade passes its deadline, and how to finish it yourself"
 ---
 
-import Screenshot from "/snippets/screenshot.mdx";
-
 If a trade doesn't settle by its deadline, it ends without you doing
 anything: the relayer sends each step for you, and your funds come back.
 No fee is taken. How it works is on
@@ -40,8 +38,9 @@ Each is a transaction from your wallet, and it costs gas only. If a step
 was already sent by someone else, sending it again just fails; the page
 updates on its next read.
 
-{/* SCREENSHOT: trade page, Finish it yourself panel with Claim cancel ready */}
-<Screenshot caption="Finish a cancel yourself" />
+<Frame caption="Finish it yourself: whichever step is ready, you can send">
+  <img src="/images/v3/cancel-01-finish-it-yourself.png" alt="The Finish it yourself panel on a trade, with Record the settled leg ready to send and Settle the other leg waiting on it" />
+</Frame>
 
 ## Save the proofs
 
