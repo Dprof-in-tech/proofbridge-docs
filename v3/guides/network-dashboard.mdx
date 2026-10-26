@@ -1,0 +1,23 @@
+---
+title: "Network dashboard"
+description: "Public statistics, route health and anchoring on the Network page"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+The **Network** page shows how ProofBridge is doing, for anyone, with no
+sign-in. Pick a **Time range**: the last 24 hours, 7, 30 or 90 days, or
+all time.
+
+| Section | Shows |
+| --- | --- |
+| **Trades**, **Volume settled**, **Median settlement**, **Completion** | headline numbers for the range |
+| **Daily completed trades** | trades settled each day |
+| **Volume by token** | settled volume in each order token; no prices are applied |
+| **Settlement Speed** | from the maker's lock to the last payout confirmed |
+| **System Health** | whether each route can build settlement proofs right now: **Healthy**, **Delayed** or **Error** |
+| **Anchoring** | how fresh each route's anchored root is; refunds and other endings need it |
+| **Disputes** | dispute activity |
+
+{/* SCREENSHOT: Network page, Last 30 days, headline numbers and daily chart */}
+<Screenshot caption="The Network page" />

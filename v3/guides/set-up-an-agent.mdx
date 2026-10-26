@@ -1,0 +1,52 @@
+---
+title: "Set up an agent"
+description: "Choose how your trades are locked: by hand, with your own bot, or with a hosted pod"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+On **My Agents**, click **New Agent**. Give the agent a name you'll
+recognize in trades and activity, then choose how trades are approved:
+
+| Mode | What it means |
+| --- | --- |
+| **Manual** | no bot. You lock and co-sign each trade from **Orders**. |
+| **Self-hosted** | you run the agent runtime on your own machine and hold every key |
+| **Hosted pod** | ProofBridge runs one isolated pod for you; only its public key leaves it. See [Hosted pods](/v3/guides/hosted-pods). |
+
+{/* SCREENSHOT: Create agent, the three modes */}
+<Screenshot caption="Choosing how trades are approved" />
+
+## Before an agent can trade
+
+Whichever way you run it, an agent locks only for an ad held by an
+[agent account](/v3/guides/linked-accounts), and only within the policy
+you set on that account:
+
+- **Per order:** the most one order may lock
+- **Per day:** the most it may lock in a day; the limit refills over time
+- **Lasts:** how long the policy holds
+
+Your wallet writes the policy on-chain. The agent can lock only within
+it, and it can't change it.
+
+## Watching and stopping it
+
+**My Agents** lists your agents with tabs **All Agents**, **Live**,
+**Setting up** and **Needs Attention**. Open one to see:
+
+| Tab | Shows |
+| --- | --- |
+| **Overview** | gas, limits and recent trades |
+| **Policy** | the policy on-chain, the guard rail, and **Revoke agent** |
+| **Activity** | trades on the agent's ad |
+| **Machine** | the pod's logs, its public key and RPC settings |
+
+**Kill Agent** has the emergency actions:
+
+- **Retire the key:** the agent's key stops working on every chain
+- **Stop the pod:** the pod is deleted and stops signing
+
+**Revoke agent** on the Policy tab is instant and permanent: that key can
+never lock for the account again. The retirement service then sends the
+key's emergency stop.
