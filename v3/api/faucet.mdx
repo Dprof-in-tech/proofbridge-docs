@@ -1,0 +1,112 @@
+---
+title: "Faucet"
+description: "Mint test tokens to your signed-in wallet on a test network"
+---
+
+On a test network you need test tokens before you can post an ad or place an order. The faucet
+mints 1,000,000 whole tokens of a test token to your signed-in wallet on that token's chain. The
+relayer answers at once with a claim id and mints in the background; you poll the claim until it
+is confirmed or failed.
+
+The faucet runs only on chains whose key registry says they are a local or test network. Anywhere
+else it refuses with `403 faucet-not-testnet`.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `POST /v1/faucet/request` | user | ask for 1,000,000 tokens; answers a claim id |
+| `GET /v1/faucet/claims/:id` | user | the claim's status |
+
+## Request test tokens
+
+`POST /v1/faucet/request`. Uses the strict rate limit (10 a minute per IP).
+
+```json
+{
+  "tokenId": "123e4567-e89b-12d3-a456-426614174000"   // a token UUID from GET /v1/tokens
+}
+```
+
+There is no address field. The tokens always go to your linked wallet for the token's chain kind,
+so link that wallet first ([Authentication](/v3/api/authentication#link-the-other-wallet)).
+
+Response `202`:
+
+```json
+{
+  "status": "queued",                                   // always
+  "claimId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",  // poll GET /v1/faucet/claims/:id
+  "symbol": "USDC",
+  "chainId": "11155111",
+  "amount": "1000000",                                  // always 1,000,000 whole tokens
+  "message": "Claim request sent. Tokens usually arrive within 30 seconds to 2 minutes."
+}
+```
+
+Show `message`. When the faucet recently had trouble on that chain, the message warns that delivery
+may be delayed or fail.
+
+- **The amount is fixed.** 1,000,000 whole tokens, scaled by the token's `decimals`.
+- **Balance limit.** If your wallet already holds 10,000 or more of the token, the request is
+  refused. There is no time-based cooldown.
+- **One claim at a time.** While a claim for the same token is still running, a second request
+  answers `409 claim-in-flight` with the running claim's `claimId`. Poll that claim instead of
+  showing an error. `claimId` is `null` only if the claim finished in between; then ask again.
+- **Test tokens only.** The faucet calls the token's open `mint`, which only the test tokens have.
+  On any other token the claim ends `FAILED`.
+
+```json
+{
+  "statusCode": 409,
+  "error": "claim-in-flight",
+  "message": "A claim for this token is already being processed — please wait",
+  "claimId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "timestamp": "2026-10-04T10:00:00.000Z"
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `tokenId` missing or not a string |
+| `400` | | `Balance threshold exceeded. Current balance: <base units>`: the wallet holds 10,000 or more |
+| `403` | `faucet-not-testnet` | the token's chain is not a local or test network |
+| `403` | | `No EVM wallet linked — connect and link the matching wallet to continue` (or `STELLAR`) |
+| `404` | | `Token with ID <tokenId> not found` |
+| `409` | `claim-in-flight` | a claim for this token is already running for you; carries `claimId` |
+| `429` | | over the strict limit |
+| `503` | `chain-unavailable` | the token's chain could not be read; retry |
+| `503` | | `Faucet is temporarily unavailable on this chain — try again in a few minutes`: three mints in a row failed on that chain; it tries again after about 5 minutes |
+
+## Claim status
+
+`GET /v1/faucet/claims/:id`. `:id` is the `claimId` from the request. You can read only your own
+claims; another user's id answers `404` like an unknown one.
+
+```json
+{
+  "id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "status": "CONFIRMED",
+  "txHash": "0x4e3a1f0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f", // set from SUBMITTED on
+  "error": null,                                       // set on FAILED
+  "tokenId": "123e4567-e89b-12d3-a456-426614174000",
+  "chainId": "11155111"
+}
+```
+
+| `status` | Meaning |
+| --- | --- |
+| `PROCESSING` | the claim is queued or the mint is being sent |
+| `SUBMITTED` | the mint transaction was sent; `txHash` is set, so you can link an explorer |
+| `CONFIRMED` | the mint landed; refresh the balance |
+| `FAILED` | the mint failed, timed out, or stalled; `error` says why |
+
+Poll every 2 to 5 seconds and stop on `CONFIRMED` or `FAILED`. A mint has 3 minutes to land; a
+claim still not final 10 minutes after it was made (for example after a relayer restart) is set
+`FAILED` with `Claim stalled — the faucet may have restarted. Please try again.` After a timeout,
+check the balance before retrying: the transaction may still land. Claims are deleted 7 days after
+they were made.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `404` | | `Claim not found`: unknown, someone else's, or older than 7 days |

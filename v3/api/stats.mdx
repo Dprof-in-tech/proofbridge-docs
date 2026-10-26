@@ -1,0 +1,155 @@
+---
+title: "Stats"
+description: "Network numbers, anchor freshness per route, and one account's track record"
+---
+
+These endpoints serve the numbers behind the public dashboard and the counterparty badge: how much
+the network has settled and how fast, whether each route's roots are anchored, and how reliable one
+address has been. They hold counts and timings only.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/stats/network` | none | trade counts, volume, settlement and proving times, disputes over a range |
+| `GET /v1/stats/anchors` | none | per route, whether the newest root is anchored on the other chain |
+| `GET /v1/stats/accounts/:address` | user | one address's trades, completion rate and verified badge |
+
+Each answer is cached for 60 seconds, so polling faster gains nothing.
+
+## Network stats
+
+`GET /v1/stats/network?range=30d`
+
+| Query | Meaning |
+| --- | --- |
+| `range` | `24h`, `7d`, `30d` (default), `90d` or `all` |
+
+```json
+{
+  "range": "30d",
+  "from": "2026-09-13T09:00:00.000Z",          // null for all
+  "to": "2026-10-13T09:00:00.000Z",
+  "generatedAt": "2026-10-13T09:00:00.000Z",   // up to 60 s old
+  "trades": {
+    "reachedChain": 412,       // created in the range with the deposit on chain
+    "completed": 380,          // settled in the range
+    "endedAfterLock": 21,      // cancelled in the range after the maker locked
+    "completionRate": 0.9476   // completed / (completed + endedAfterLock); null when both are 0
+  },
+  "volume": [                  // settled volume, one row per order token
+    { "tokenId": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e", "symbol": "USDC", "chainId": "11155111", "decimals": 6, "amount": "1250000000" }
+  ],
+  "settlement": {
+    "medianSeconds": 184,      // from the maker's lock to the last leg confirmed
+    "buckets": [
+      { "label": "<1m", "count": 31 },
+      { "label": "1-5m", "count": 212 },
+      { "label": "5-15m", "count": 101 },
+      { "label": "15-60m", "count": 30 },
+      { "label": ">1h", "count": 6 }
+    ]
+  },
+  "proving": { "medianProveMs": 28400 },        // proof time per leg proved in the range
+  "daily": [ { "date": "2026-10-12", "completed": 14 } ], // UTC days; days with none are left out
+  "disputes": { "open": 2, "MutualRefund": 3, "TradeProceeds": 5, "BridgerForfeit": 1, "MakerForfeit": 0, "Resolved": 0 }
+}
+```
+
+- **Volume is in token units.** There is no USD figure. `amount` is in the token's smallest unit;
+  format it with `decimals`, and convert to a price on your side if you want one.
+- **Disputes** count trades created in the range that had a dispute, by outcome. `open` is disputed
+  and not yet ruled or ended; `Resolved` ended on chain without a ruling seen. See
+  [Disputes](/v3/concepts/disputes).
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `range` is not one of the five values |
+
+## Anchor freshness
+
+`GET /v1/stats/anchors`
+
+A refund proof, and every other evidence proof, only works against a root the other chain has
+anchored ([Root anchors](/v3/concepts/root-anchors)). This endpoint tells you, per route, whether the
+newest root is anchored yet and how far behind the anchor service is. Use it to tell whether a
+self-serve refund can work right now.
+
+A route here is a pair of chains: `sourceChainId`, whose roots are anchored, and `targetChainId`,
+where a proof about the source chain is presented. Both directions appear.
+
+```json
+{
+  "generatedAt": "2026-10-13T12:00:00.000Z",
+  "routes": [
+    {
+      "sourceChainId": "1000002",
+      "targetChainId": "11155111",
+      "status": "current",
+      "newestRootAt": "2026-10-13T11:50:00.000Z",   // when the source's newest finalized root was emitted
+      "anchoredRootAt": "2026-10-13T11:50:00.000Z", // when the newest anchored root was emitted on the source
+      "anchoredAt": "2026-10-13T11:52:00.000Z",     // when the target anchored it
+      "usableAt": "2026-10-13T11:53:00.000Z",       // anchoredAt plus the anchor delay
+      "anchorAgeSeconds": 480,
+      "lagSeconds": 0,                              // 0 when the newest root is anchored
+      "uncoveredRoots": 0                           // finalized roots newer than the anchored one
+    },
+    {
+      "sourceChainId": "11155111",
+      "targetChainId": "1000002",
+      "status": "behind",
+      "newestRootAt": "2026-10-13T11:58:00.000Z",
+      "anchoredRootAt": "2026-10-13T11:40:00.000Z",
+      "anchoredAt": "2026-10-13T11:41:00.000Z",
+      "usableAt": "2026-10-13T11:42:00.000Z",
+      "anchorAgeSeconds": 1140,
+      "lagSeconds": 600,
+      "uncoveredRoots": 2
+    }
+  ]
+}
+```
+
+| `status` | Meaning |
+| --- | --- |
+| `current` | the source's newest finalized root is anchored on the target and usable |
+| `maturing` | it is anchored but still inside the anchor delay; `usableAt` is in the future |
+| `behind` | it is not anchored yet; `lagSeconds` counts from the first root no anchor covers |
+| `empty` | the source chain has no finalized root yet |
+| `unknown` | the target chain could not be read; the other routes are still answered |
+
+The time fields are `null` when they do not apply, for example on an `empty` route.
+
+## Account track record
+
+`GET /v1/stats/accounts/:address`, with your access token. Any signed-in user can read any address.
+This is the one view of another party's history: the trade list shows only your own trades.
+
+`:address` is an EVM address (any case), a Stellar `G…` or `C…` strkey, or `0x` + 64 hex. It is
+matched as both the maker and the bridger of every trade.
+
+```json
+{
+  "address": "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf", // EIP-55 on EVM, 0x + 64 hex on Stellar
+  "trades": 87,             // trades whose deposit reached the chain
+  "completed": 77,          // of those, settled
+  "endedAfterLock": 9,      // of those, cancelled after the maker locked
+  "completionRate": 0.8953, // completed / (completed + endedAfterLock), 4 places; null when nothing ended after a lock
+  "verified": true          // a live settlement key and at least one completed trade
+}
+```
+
+- **Completion counts only trades both sides funded and that have ended.** A trade the maker never
+  locked, and every open trade, are left out, so a new trade does not drag the rate down. Show
+  "No completed trades yet" for `null`.
+- **A forfeit counts only against the party that forfeited.** For the other party that trade counts
+  in `trades` but in neither `completed` nor `endedAfterLock`.
+- **`verified`** means the relayer's record shows an active, registered
+  [settlement key](/v3/concepts/settlement-keys) for the address and at least one completed trade.
+  It is not an identity check. A maker trading through an agent identity is verified on that
+  identity.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `Invalid address` |
+| `401` | | no or bad access token |

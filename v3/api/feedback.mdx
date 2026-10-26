@@ -1,0 +1,139 @@
+---
+title: "Feedback"
+description: "Send a bug report or feedback, with screenshots or a screen recording, without signing in"
+---
+
+The public feedback form sends reports here. You don't need to sign in. Each write carries a
+Cloudflare Turnstile token, and the relayer caps how many reports and uploads one address can send
+per hour. To attach files, upload each one first, then name it in the report.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `PUT /v1/feedback/attachments/:sha256` | none | upload one file (image or video) |
+| `POST /v1/feedback` | none | log a report |
+
+If feedback is turned off on a deployment, both routes answer `404`.
+
+## The bot check
+
+Send the Turnstile widget's token in the `x-turnstile-token` header on both routes.
+
+```http
+x-turnstile-token: <token from the Turnstile widget>
+```
+
+Tokens are single use. After each request, successful or not, reset the widget to get a fresh
+token for the next one.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `403` | `feedback-turnstile` | no token, the check failed, or the token was already used; reset the widget |
+| `503` | `feedback-turnstile-unavailable` | the check service did not answer in time; retry |
+| `503` | `feedback-turnstile-unconfigured` | the deployment has no Turnstile key configured |
+
+## Upload a file
+
+`PUT /v1/feedback/attachments/:sha256`. Limit: 30 uploads per hour per address.
+
+`:sha256` is the file's SHA-256 as 64 hex characters (a `0x` prefix is accepted). The body is the
+raw file bytes, not JSON and not multipart, up to 10 MB. Set `Content-Type` to the file's type:
+
+| `Content-Type` | File |
+| --- | --- |
+| `image/jpeg` | JPEG image |
+| `image/png` | PNG image |
+| `video/mp4` | MP4 video |
+
+```http
+PUT /v1/feedback/attachments/9f2c1e5a7b3d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6
+Content-Type: image/png
+x-turnstile-token: <token>
+
+<file bytes>
+```
+
+Response `201`, or `200` with the same body when the file was already uploaded:
+
+```json
+{
+  "sha256": "9f2c1e5a7b3d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6",
+  "contentType": "image/png",
+  "size": 482113   // bytes
+}
+```
+
+A file is stored once under its hash, and several reports may link it. A file that no report links
+is deleted 24 hours after its last upload, so send the report soon after the uploads.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | `:sha256` is not 64 hex characters |
+| `400` | `feedback-empty` | the body is empty |
+| `400` | `feedback-hash-mismatch` | the bytes do not hash to `:sha256`; the body carries the computed `sha256` |
+| `413` | | the file is over 10 MB |
+| `415` | `feedback-content-type` | `Content-Type` is JSON, form-encoded or multipart |
+| `415` | `feedback-type` | `Content-Type` is not one of the three, or the bytes are not that type |
+| `403`, `503` | | the bot check above |
+| `429` | | over 30 uploads an hour from your address |
+| `503` | `feedback-store-disabled` or `feedback-store-unavailable` | file storage is not set up, or did not take the file |
+
+## Log a report
+
+`POST /v1/feedback`. Limit: 10 reports per hour per address.
+
+Strings are trimmed. Optional fields may be left out, `null` or `""`.
+
+```json
+{
+  "title": "Refund still shows pending",          // required, 1 to 120 characters
+  "category": "BUG",                              // required, see below
+  "severity": "HIGH",                             // required: LOW, HIGH or BLOCKER
+  "reporter": "@bridge_tester",                   // up to 80
+  "source": "DISCORD",                            // DISCORD, X, TELEGRAM, EMAIL, IN_APP_FORM or OTHER
+  "reportedAt": "2026-10-24T13:05:00.000Z",       // ISO date-time, not in the future
+  "role": "Bridger",                              // up to 60
+  "tryingTo": "Claim a refund after the bridge transaction confirmed.", // up to 2000
+  "happened": "The order page still showed Refund ready.",              // up to 2000
+  "expected": "The order should show the refund as completed.",         // up to 2000
+  "steps": "1. Open the confirmed order\n2. Claim the refund\n3. Return to the order page", // up to 4000
+  "transactionDetails": "Order 0x7a3f…92e7, 25 USDC, Ethereum → Stellar", // up to 1000
+  "links": ["https://discord.com/channels/1/2/3"], // up to 2 http(s) URLs of up to 500 characters
+  "reportedBefore": "NO",                          // YES, NO or NOT_SURE
+  "attachments": [                                 // up to 5, each uploaded first
+    { "sha256": "9f2c1e5a7b3d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6", "name": "refund-pending.png" }
+  ]
+}
+```
+
+| `category` | Use for |
+| --- | --- |
+| `BUG` | something broken |
+| `UX_FRICTION` | it works but is hard to use |
+| `DOCUMENTATION` | the docs are wrong or missing something |
+| `FEATURE_REQUEST` | something you'd like added |
+| `CONFUSION` | you weren't sure what was happening |
+| `POSITIVE_FEEDBACK` | something that worked well |
+| `ENVIRONMENT` | a problem with the network, wallet or setup |
+
+Each attachment names an uploaded file by its `sha256`, plus the file name to show on this report
+(1 to 200 characters). The same file may not appear twice in one report.
+
+Response `201`:
+
+```json
+{
+  "id": "5b0c1c1e-0f5e-4d0c-9a51-2f7c8f9d4e21",
+  "ref": "PF-29970",          // the reference to show the reporter
+  "status": "LOGGED",
+  "createdAt": "2026-10-24T13:07:12.000Z"
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | a field failed validation; `field` names the first one, for example `title` or `attachments.0.sha256` |
+| `404` | `feedback-attachment-not-found` | an attachment's hash was never uploaded (or was already deleted); `field` is `attachments` and nothing is saved |
+| `403`, `503` | | the bot check above |
+| `429` | | over 10 reports an hour from your address |

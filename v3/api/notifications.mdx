@@ -1,0 +1,183 @@
+---
+title: "Notifications"
+description: "List and mark notifications, and receive them live over the notifications socket"
+---
+
+The relayer tells you when something happens on your trades, ads and agents: a new order on your ad, the maker's lock,
+a cancel, each step of a dispute, or an agent's policy about to expire. Each notice is stored so you can list it and
+mark it read, and is also pushed live over a socket. A second socket event, `trade:status`, carries a trade's
+settlement progress. Stored notices are kept for 90 days.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/notifications` | user | list your notifications, newest first |
+| `GET /v1/notifications/unread-count` | user | the unread count, for a badge |
+| `PATCH /v1/notifications/:id/read` | user | mark one notification read |
+| `POST /v1/notifications/read-all` | user | mark every notification read |
+
+A notice addressed to an address reaches the user who holds it as a signed-in wallet or a
+[linked account](/v3/api/accounts).
+
+## The Notification object
+
+The list, mark-read and the socket all use this shape.
+
+```json
+{
+  "id": "5d0c1a7e-9b2f-4c3d-8e1a-6f7b8c9d0e1f",
+  "userId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",   // the recipient
+  "type": "TRADE_CREATED",
+  "tradeId": "0f9e8d7c-6b5a-4f3e-9d2c-1b0a9f8e7d6c",  // null on agent and guard-rail notices
+  "title": "New order on your ad",                     // ready to show
+  "body": "A bridger placed an order from Stellar to EVM.",
+  "payload": { "adId": "3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a", "amount": "25000000" },  // depends on type; often null
+  "read": false,
+  "createdAt": "2026-10-03T10:04:12.511Z"
+}
+```
+
+`title` and `body` are written for display, so you can show them as they are. Use `type` to choose an icon or a link,
+and `tradeId` for a "View trade" link.
+
+## Notification types
+
+| `type` | Who gets it | When | `payload` |
+| --- | --- | --- | --- |
+| `TRADE_CREATED` | the ad's maker | a bridger's deposit lands on your ad | `{ adId, amount }`, amount in base units |
+| `TRADE_LOCKED` | the bridger | the maker locked funds for your order | null |
+| `TRADE_EXPIRED` | the bridger | your order was never submitted on chain and the reservation expired | null |
+| `TRADE_CANCELLED` | both parties | the trade ended cancelled: refunded, finalized, or after a dispute forfeit | null |
+| `DISPUTE_FILED` | both parties | a dispute was opened on the trade | null |
+| `DISPUTE_ANSWERED` | both parties | the party that did not file has answered | null |
+| `DISPUTE_RULED` | both parties | the arbiter service ruled, or proof of settlement ended the dispute (title `Dispute ended by settlement`) | null |
+| `AGENT_KILLED` | the agent's owner | an agent key acting for your ad was revoked on chain, and its pre-signed retirements were sent | `{ agentKey, adIdentity, chainId, txHash }` |
+| `AGENT_POLICY_EXPIRING` | the agent's owner | your agent's on-chain policy expires within 24 hours | `{ agentKey, adIdentity, validUntil, chainId? }` |
+| `AGENT_POLICY_EXPIRED` | the agent's owner | your agent's on-chain policy has expired | `{ agentKey, adIdentity, validUntil, chainId? }` |
+| `GUARD_RAIL_ALERT` | the user who linked the account | a guarded action was scheduled or cancelled, or a guard rail was set or removed, on your agent account | `{ kind, scope?, action?, readyAt?, adId?, account, chainId, txHash }` |
+| `BRIDGER_CLAIMED` | nobody | no longer sent; kept so older stored notices still read | null |
+
+- `validUntil` and `readyAt` are unix seconds. `txHash` on `AGENT_KILLED` links to the revoke transaction.
+- `GUARD_RAIL_ALERT` `kind` is `scheduled`, `armed`, `disarmed` or `cancelled`. A scheduled action or removed guard rail
+  you did not make means your owner key may be compromised.
+- Payloads may carry a `dedupKey`; ignore it.
+- `TRADE_CANCELLED` `body` depends on the trade's `cancelReason`. See [Disputes](/v3/api/disputes) for the dispute
+  texts.
+
+Nothing is sent for pods. The co-signed settlement path stores no notices; it pushes `trade:status` instead.
+
+## List
+
+`GET /v1/notifications`
+
+Newest first, cursor-paginated.
+
+| Query | Default | Rule |
+| --- | --- | --- |
+| `unreadOnly` | all | `true` for unread only |
+| `limit` | 20 | 1 to 100 |
+| `cursor` | none | the previous page's `nextCursor` |
+
+```json
+{
+  "items": [ /* Notification objects */ ],
+  "nextCursor": null          // null on the last page
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `limit must not be greater than 100` | a bad query value or an unknown key |
+
+## Unread count
+
+`GET /v1/notifications/unread-count`
+
+```json
+{ "count": 3 }
+```
+
+## Mark one read
+
+`PATCH /v1/notifications/:id/read`
+
+No body. Marks your notification read and returns it. Marking a read notice again still answers `200`.
+
+```json
+{
+  "id": "5d0c1a7e-9b2f-4c3d-8e1a-6f7b8c9d0e1f",
+  "type": "TRADE_LOCKED",
+  "title": "Your order is locked — claim now",
+  "read": true
+  /* … the rest of the Notification object */
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `404` | `Notification not found` | unknown id, or not yours |
+
+## Mark all read
+
+`POST /v1/notifications/read-all`
+
+No body. Marks every unread notice read.
+
+```json
+{ "updated": 3 }            // how many changed
+```
+
+## The notifications socket
+
+The socket is Socket.IO 4 on the namespace `/notifications` at the relayer's base URL. Connect with your **access**
+token:
+
+```ts
+import { io } from "socket.io-client";
+
+const socket = io(`${baseUrl}/notifications`, { auth: { token: accessToken } });
+
+socket.on("notification", (n) => { /* a Notification object */ });
+socket.on("trade:status", (s) => { /* a settlement progress push */ });
+socket.on("connect", () => { /* refetch the list, the unread count and open trades */ });
+```
+
+A refresh token, a missing, bad or expired token, or a browser origin that is not allowed is refused: the server
+disconnects the socket at once, with no error event. The client sends no events.
+
+| Event | Payload | When |
+| --- | --- | --- |
+| `notification` | the Notification object | right after the notice is stored |
+| `trade:status` | the push below | a co-signature is accepted, or a settlement leg lands on chain |
+
+```json
+{
+  "tradeId": "0f9e8d7c-6b5a-4f3e-9d2c-1b0a9f8e7d6c",
+  "state": "Aggregated",
+  "signaturesCollected": 2,               // 0 to 2
+  "parties": ["bridger", "maker"],        // the sides that have co-signed
+  "updatedAt": 1790000123456              // epoch ms
+}
+```
+
+| When | `state` | `signaturesCollected` |
+| --- | --- | --- |
+| a co-signature was accepted | `Signed`, or `Aggregated` once both are in (`Claimed` / `Disputed` on such a trade) | 1 or 2 |
+| a settlement leg landed | `Settling` (one leg), `Filled` (both) | 2 |
+| both parties must sign again | `Locked`, with a `resign: { reason, repin, since }` field | 0 |
+
+The push never carries key or leg detail. Read [`GET /v1/trades/:id/settlement`](/v3/api/settlement) for that.
+
+### Reconnecting
+
+- **Token expiry.** The server disconnects the socket when its access token expires (reason `io server disconnect`).
+  The Socket.IO client does not retry a server-side disconnect by itself: refresh the token, set the new `auth`, and
+  call `connect()` again.
+- **Network drops.** The client reconnects by itself, with the token it was created with.
+- **Missed events are not replayed.** Refetch the list, the unread count and your open trades on every `connect`.
+
+<Note>
+The socket is a hint, not the record. Events can be missed while you are disconnected, so treat each push as a cue to
+refetch, and poll the HTTP routes for the truth.
+</Note>
