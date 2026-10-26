@@ -3,8 +3,6 @@ title: "Settlement keys"
 description: "The per-wallet BLS key that co-signs every trade: how it's derived, registered, retired and replaced"
 ---
 
-import Screenshot from "/snippets/screenshot.mdx";
-
 Every trading wallet holds a **BLS12-381 settlement key**. At payout, the
 contracts look up the registered keys for the trade's two parties and
 check the combined signature against them. The keys are how each chain
@@ -30,8 +28,9 @@ The `key #NNNN` counter is the **key index**. A replacement key uses the
 next index, so the message changes, the signature changes and the key
 changes.
 
-{/* SCREENSHOT: wallet signature prompt showing the derivation message and key index */}
-<Screenshot caption="The derivation signature in the wallet: the message text and the key index" />
+<Frame caption="Choosing the wallet that will sign. The prompt itself is your wallet's own window">
+  <img src="/images/v3/soak-04-register-key.png" alt="The BLS Signing Key dialog asking which wallet to derive the key from, with Ethereum Sepolia and Stellar Testnet to choose between" />
+</Frame>
 
 ## Registration
 
