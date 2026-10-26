@@ -3,8 +3,6 @@ title: "Register a settlement key"
 description: "Register, retire and back up the key that co-signs your trades, on the BLS Keys page"
 ---
 
-import Screenshot from "/snippets/screenshot.mdx";
-
 Every wallet you trade from needs a registered
 [settlement key](/v3/concepts/settlement-keys). You do it once per
 wallet, on the **BLS Keys** page. The page lists each connected wallet and
@@ -29,8 +27,9 @@ its key status: **Registered**, **Not Registered**, **Pending** or
   </Step>
 </Steps>
 
-{/* SCREENSHOT: BLS registration modal at "Key Generated", public key and "Registering on: All Chains" visible */}
-<Screenshot caption="Registering a generated key on all chains" />
+<Frame caption="Generated in the browser. Registering is the separate, on-chain half">
+  <img src="/images/v3/keys-01-generated.png" alt="The Key Generated dialog showing the derived public key and that it will be registered on all chains, with a Register Key button" />
+</Frame>
 
 If a registration is still **Pending** and you want to stop it,
 **Cancel registration** makes the signed registration invalid on every
@@ -51,8 +50,9 @@ key still has to co-sign will need the
 [cancel path](/v3/concepts/cancels-and-refunds). Register a new key to
 keep trading.
 
-{/* SCREENSHOT: key actions menu with Retire key and File emergency stop */}
-<Screenshot caption="Key actions: retire, or file an emergency stop" />
+<Frame caption="Retire ends the key; an emergency stop is the louder one">
+  <img src="/images/v3/keys-03-actions-menu.png" alt="The BLS Keys page with a key's actions menu open, offering Retire key and File emergency stop beside the Revoke button" />
+</Frame>
 
 ## Revoke
 

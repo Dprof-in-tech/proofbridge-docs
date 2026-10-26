@@ -3,8 +3,6 @@ title: "Report a bug or finding"
 description: "Log a bug, a confusing moment or an idea from the soak on the Feedback page"
 ---
 
-import Screenshot from "/snippets/screenshot.mdx";
-
 During the soak, the **Feedback** page is where bugs and findings go, whether they're yours or ones someone shared
 on Discord, X or Telegram. No sign-in is needed. Each report goes straight to the team's review queue.
 
@@ -42,8 +40,13 @@ on Discord, X or Telegram. No sign-in is needed. Each report goes straight to th
 Never include private keys or seed phrases.
 </Warning>
 
-{/* SCREENSHOT: Feedback page, Details step filled in */}
-<Screenshot caption="Logging a report" />
+<Frame caption="The three questions that make a report actionable">
+  <img src="/images/v3/feedback-02-details.png" alt="The Details step of the feedback portal filled in, with what the reporter was trying to do, what actually happened and what they expected instead" />
+</Frame>
+
+<Frame caption="Context last: an order ID, screenshots, and whether it's been seen before">
+  <img src="/images/v3/feedback-03-context.png" alt="The Context step with transaction details, a drag-and-drop area for screenshots and attachments, link fields and a reported-before question" />
+</Frame>
 
 A short bot check runs when you submit. When the report is saved, you'll see **Feedback logged!** with the report's
 reference (for example, `PF-30001`). Quote it if you follow up with the team.
