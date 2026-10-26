@@ -17,9 +17,15 @@ to find one), or use your own two wallets: one as the maker, one as the bridger.
 2. **Hold to Bridge** and approve the deposit in your wallet.
 3. Wait for the maker to lock, then **Co-sign Settlement**.
 
+**Hold to Bridge** is a press-and-hold, not a click — keep the button down until it fills. The same pattern appears
+in mission 3, pictured there.
+
 **What should happen:** the fee and **You'll Get** match before you confirm. The steps advance to **Completed**,
 the tokens arrive on Stellar, and the **Timeline** links every transaction.
 [Bridge tokens](/v3/guides/bridge-tokens).
+
+Co-signing is a second signature, after the deposit and after the maker locks. It is the step people don't expect,
+and it appears again in mission 3.
 
 ## Mission 2: Bridge Stellar → Sepolia
 
@@ -33,6 +39,16 @@ directions.
 1. On **My Ads**, **Create an Ad** for a route, with liquidity and per-order limits.
 2. When an order comes in (you'll get a notification), **Lock Tokens**, then **Co-sign Settlement**.
 3. **Top Up**, **Withdraw**, and finally **Close Ad** once its trades have ended.
+
+<Frame caption="Hold to Create Ad is a press-and-hold — the same control as Hold to Bridge">
+  <img src="/images/v3/test-01-hold-to-create-ad.png" alt="The Creating an Ad dialog with the route, amounts and a Hold to Create Ad button" />
+</Frame>
+
+Funding an ad takes **two wallet interactions**, not one: an approval, then the transaction itself.
+
+<Frame caption="Approve, then sign — the dialog tracks both, then finalises">
+  <img src="/images/v3/test-02-ad-signing-steps.png" alt="The Creating an Ad dialog showing Approve in Wallet, Sign Transaction and Finalize stages with MetaMask open alongside" />
+</Frame>
 
 **What should happen:** the ad shows its available liquidity, and the LP fee stays in your ad after each trade.
 [Provide liquidity](/v3/guides/provide-liquidity), [Manage ads](/v3/guides/manage-ads).
