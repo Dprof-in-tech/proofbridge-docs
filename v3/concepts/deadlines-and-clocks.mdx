@@ -1,0 +1,63 @@
+---
+title: "Deadlines and clocks"
+description: "Every order has a deadline. How the two chains agree on when a trade must settle and how it ends"
+---
+
+Every order carries a **deadline**: the time by which the trade has to
+settle. The deadline is part of the [order](/v3/concepts/order-hashing),
+so both chains and both parties see the same one.
+
+## One chain decides, the other follows
+
+Two chains can't share a clock. ProofBridge gives the decision to one of
+them:
+
+- The **ad chain** (`AdManager`) is the **leader**. Its clock alone decides
+  how a trade ends: settled, cancelled or ruled on.
+- The **order chain** (`OrderPortal`) is the **follower**. It has no clock
+  of its own for endings. It acts on a proof of what the ad chain
+  decided: a settled payout, a cancel or a forfeit.
+
+This way the two chains can never decide differently about the same
+trade.
+
+## The route's clocks
+
+Each route sets four timings. They're fixed for an order when it's created
+and locked, so a later change never affects a trade in flight.
+
+| Timing | What it does | Soak value |
+| --- | --- | --- |
+| Shortest order window | the least time between creating an order and its deadline | 20 minutes |
+| Cancel window | after the deadline, how long before a started cancel can complete | 30 minutes |
+| Margin | how long before the end of the cancel window the ad chain stops accepting a co-signed payout | 5 minutes |
+| Claim stagger | how long before the deadline the order chain stops accepting a co-signed payout | 1 minute |
+
+The app sets an order's deadline at twice the shortest window, so about 40
+minutes on soak. An order's window can never be longer than 7 days.
+
+## How the timeline plays out
+
+1. **Before the deadline**, the trade settles normally. The order chain
+   stops accepting the co-signed payout one claim stagger before the
+   deadline.
+2. **At the deadline**, anyone can start a cancel on the ad chain. That
+   opens the cancel window.
+3. **During the cancel window**, a co-signed payout on the ad chain, or a
+   proof that the trade settled, still ends the trade as settled. Either
+   party can also file a [dispute](/v3/concepts/disputes).
+4. **After the window**, the cancel completes. The Maker's lock returns
+   to the ad, and the Bridger's deposit is refunded on the order chain.
+   See [Cancels and refunds](/v3/concepts/cancels-and-refunds).
+
+## When a payout was blocked
+
+If a co-signed payout couldn't go through, for example because the Maker
+halted settlement or the pinned key ended, the cancel waits a little
+longer. That extra time lets the Bridger present evidence that the trade
+should settle, so a Maker can't block the payout and then cancel.
+
+## Pausing doesn't move deadlines
+
+A pause stops only new activity: new ads, funding, locks and orders.
+Every ending stays open, so pausing never stretches or shortens a window.
