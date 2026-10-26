@@ -1,0 +1,85 @@
+---
+title: "Bridge tokens"
+description: "The Bridger flow, end to end"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+## Before you start
+
+- A wallet connected for the chain you're bridging **from**
+  ([Connect a wallet](/v3/guides/connect-wallet))
+- That wallet's [settlement key](/v3/guides/register-a-settlement-key)
+  registered
+- Test funds ([faucet](/v3/guides/faucet))
+
+## 1. Pick a route and an ad
+
+On the **Bridge** page, choose the chain you're sending from, the
+destination chain and the token. The page lists the open ads for that
+route. Filter by **Autobot** (makers with an agent) or **Manual**.
+
+{/* SCREENSHOT: Bridge page, route selected, list of open ads with one Automated maker badge */}
+<Screenshot caption="The marketplace: pick a route, then an ad" />
+
+Open an ad to see the maker's record of completed trades.
+
+## 2. Enter the amount
+
+Enter the **Amount to Bridge**, within the ad's limits. The app shows
+**You Pay**, the [fee](/v3/concepts/fees) and **You'll Get**. Check the
+address you'll be paid at on the destination chain; it defaults to your
+connected wallet there.
+
+{/* SCREENSHOT: Bridge ad modal, amount entered, You Pay / fee / You'll Get */}
+<Screenshot caption="Amount, fee and what you'll get" />
+
+## 3. Hold to Bridge
+
+Press and hold **Hold to Bridge**. The deposit runs through these steps:
+
+1. **Preparing:** fetching the order from the relayer
+2. **Checking Trustline:** a one-time trustline setup, for Stellar
+   classic assets only
+3. **Approve in Wallet:** a one-time token approval, for ERC-20 tokens only
+4. **Submit On-Chain:** your deposit into the OrderPortal escrow
+5. **Finalizing:** telling the relayer the deposit landed
+
+Your tokens stay in escrow until the trade settles or is refunded.
+
+Closed the popup by mistake? The order waits on the
+[Orders page](/v3/guides/track-orders): **Complete Order** serves the same
+transaction without reserving more liquidity. Unfunded orders are released
+after ~30 minutes.
+
+## 4. The maker locks
+
+Once your deposit confirms, the maker locks the matching funds on the
+other chain (makers with an agent lock automatically). The trade page
+shows **Maker's Turn** until they do.
+
+## 5. Sign with BLS Key
+
+When both deposits are confirmed, the trade page shows **Your Turn**.
+Click **Co-sign Settlement**: your settlement key signs the trade in the
+app, with no transaction and no gas.
+
+{/* SCREENSHOT: trade page, claim steps with Sign with BLS Key active */}
+<Screenshot caption="Co-sign: instant, no gas" />
+
+## 6. Done, the rest is automatic
+
+```
+Sign with BLS Key → Aggregated → Submit On-chain → Completed
+```
+
+The signatures are combined, the proofs built and the payouts submitted.
+Your tokens arrive at your receive address. The trade page's
+**Timeline** links every transaction, and **Transaction Details** shows
+what you sent, the fee and what you got.
+
+## If it doesn't settle
+
+Every order has a **Deadline**, shown on the trade page with the **Time
+Left**. If the trade doesn't settle by then, your deposit is refunded. See
+[Cancel or get a refund](/v3/guides/cancel-or-get-a-refund).

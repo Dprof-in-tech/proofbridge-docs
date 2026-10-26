@@ -1,0 +1,44 @@
+---
+title: "Manage ads"
+description: "Top up, withdraw and close your liquidity"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+**My Ads** lists every ad you've created, including ads held by your
+linked agent accounts, with its route, available liquidity and limits.
+
+{/* SCREENSHOT: My Ads, All Ads tab with two ads */}
+<Screenshot caption="My Ads: route, available liquidity and per-order limits" />
+
+## Tabs
+
+| Tab | Shows |
+| --- | --- |
+| **All Ads** | everything |
+| **Active** | ads serving trades |
+| **Pending** | ads whose creation transaction hasn't landed yet |
+| **Inactive** | paused or exhausted ads |
+| **Completed** | closed ads |
+
+## Actions
+
+Open an ad's menu:
+
+- **Top Up:** add liquidity
+- **Withdraw:** take out liquidity that no open trade is holding
+- **Close Ad:** reclaim the remaining liquidity. Close only once the ad's
+  open trades have ended.
+- **Complete Setup:** finish an ad whose creation didn't complete
+
+Each action is a transaction from your wallet; the app confirms it landed.
+
+<Note>
+**Available vs liquidity:** a new order can take your on-chain liquidity
+minus what open trades hold. Reservations from orders that are never
+funded are released after ~30 minutes.
+</Note>
+
+If your agent account has a **guard rail**, large withdrawals and closing
+are scheduled and wait the delay you chose. See
+[Agents](/v3/concepts/agents#guard-rails).
