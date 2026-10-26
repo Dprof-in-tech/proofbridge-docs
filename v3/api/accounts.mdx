@@ -1,0 +1,118 @@
+---
+title: "Accounts"
+description: "List your wallets, and link or unlink the agent accounts you own"
+---
+
+A maker can run ads from an agent account instead of the wallet they signed in with. Linking proves you control that
+account: the relayer reads the account's owner on chain, and it must be your signed-in wallet. See
+[Agents](/v3/concepts/agents) for what an agent account is and why it never holds your funds.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/accounts` | user | your signed-in wallets and your linked accounts |
+| `POST /v1/accounts/link` | user | link an agent account whose on-chain owner is your wallet |
+| `DELETE /v1/accounts/:id` | user | unlink an account |
+
+## Account kinds
+
+| `kind` | Chain | What it is |
+| --- | --- | --- |
+| `STELLAR_AGENT_ACCOUNT` | Stellar | a Soroban agent account contract (`C…`) |
+| `EVM_CUSTODY_ACCOUNT` | EVM | an agent account made by the chain's custody account factory |
+
+## The on-chain owner check
+
+A link is not a permanent grant. Every write you make for a linked account, such as creating or funding its ad,
+re-reads the account's owner on chain. The moment the owner is no longer your signed-in wallet, those writes are
+refused with `403`, even though the link still shows in your list. If the owner cannot be read, the write answers
+`503` rather than passing.
+
+Once linked, you can:
+
+- create ads with the account as `creator`, and fund, withdraw, update or close them;
+- act as the maker on the account's trades, including co-signing;
+- see the account's ads in `GET /v1/ads/mine`;
+- receive [notifications](/v3/api/notifications) addressed to the account.
+
+A linked account has no key of its own, so it never counts as your wallet for [key routes](/v3/api/keys). Your wallet
+stays the settlement signer.
+
+## List
+
+`GET /v1/accounts`
+
+Your signed-in wallets, one per chain kind, and your linked accounts, oldest link first. This reads no chain, so a
+listed link may already be stale.
+
+```json
+{
+  "wallets": [
+    { "chainKind": "EVM", "address": "0x5B38Da6a701c568545dCfcB03FcB875f56beddC4" },
+    { "chainKind": "STELLAR", "address": "0xc95bc00122f22576ebb028b9f639d45c4b4e88706f8bfc0b9b09c0e946bf3e14" }
+  ],
+  "accounts": [
+    {
+      "id": "7c1d9a52-3b6e-4f0a-9d8e-1a2b3c4d5e6f",   // the :id for DELETE
+      "chainKind": "STELLAR",
+      "chainId": "1000002",
+      "address": "0xc193ec266ad7daa15ae383a94820396c8d2274b6b848613b1e3a8e232864dce3",
+      "strkey": "CDAZH3BGNLL5VIK24OB2SSBAHFWI2ITUW24EQYJ3DY5I4IZIMTOOH6QJ",  // on EVM: the address
+      "kind": "STELLAR_AGENT_ACCOUNT",
+      "linkedAt": "2026-10-03T09:12:44.000Z"
+    }
+  ]
+}
+```
+
+Addresses are in stored form: EIP-55 on EVM, `0x` + 64 hex on Stellar. `strkey` is the value to put in an ad's
+`creator` field: the `C…` strkey on Stellar, the address on EVM.
+
+## Link
+
+`POST /v1/accounts/link`
+
+The relayer finds the chain, checks the address form, reads the account's owner on chain, and links it if the owner is
+your signed-in wallet on that chain kind. Linking an account again refreshes `linkedAt`. If another user held the link
+before, a link proven by the current owner takes it over.
+
+```json
+{
+  "chainId": "1000002",                                              // decimal
+  "address": "CDAZH3BGNLL5VIK24OB2SSBAHFWI2ITUW24EQYJ3DY5I4IZIMTOOH6QJ"  // Stellar: C… or 0x + 64 hex; EVM: 0x + 40 hex
+}
+```
+
+Answers `201` with the linked account, in the same shape as an entry in `accounts` above. On EVM, `kind` is
+`EVM_CUSTODY_ACCOUNT` and the account counts only if the chain's custody factory made it.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `address must be a 0x EVM address` | an EVM chain, and the address is not `0x` + 40 hex |
+| `400` | `That is a wallet address; link a contract account (C…)` | a Stellar `G…` address |
+| `400` | `address must be a C… strkey or 32-byte hex` | another Stellar form |
+| `400` | `address is not a valid account address` | a bad checksum or a strkey that does not decode |
+| `400` | `That is your signed-in wallet` | the address is your own wallet |
+| `400` | `No agent account at that address` | no agent account there; on EVM, also one the factory did not make |
+| `403` | `No STELLAR wallet linked — connect and link the matching wallet to continue` | you have not signed in with a wallet of that chain kind |
+| `403` | `The account's on-chain owner is not your signed-in wallet` | the owner is another wallet, or a contract |
+| `404` | `Chain not found` | unknown `chainId` |
+| `503` | `The account's owner could not be read from the chain — retry` | the chain could not be read |
+
+## Unlink
+
+`DELETE /v1/accounts/:id`
+
+Deletes your own link. This makes no chain call. An account that still makes an ad that is not `CLOSED` cannot be
+unlinked: close its ads first.
+
+```json
+{ "id": "7c1d9a52-3b6e-4f0a-9d8e-1a2b3c4d5e6f" }
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `Validation failed (uuid is expected)` | `:id` is not a UUID |
+| `404` | `Account link not found` | no such link for you |
+| `409` | `This account still makes <n> open ad(s). Close them before unlinking it.` | the account has open ads |

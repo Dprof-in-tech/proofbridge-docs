@@ -1,0 +1,541 @@
+---
+title: "Keys"
+description: "Register, rotate, retire and revoke settlement keys, approve makers, and fetch the trade-half encryption key"
+---
+
+Every settlement is co-signed with a BLS key, and each chain's key registry must hold that key for your account before
+a co-signature counts. These endpoints file your key on every registry, change or end it later, and record which makers
+may name your account as their settlement signer. The relayer files every leg and pays the gas. See
+[Settlement keys](/v3/concepts/settlement-keys) for how keys are derived and used.
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/keys/half-encryption` | none | the current key your trade halves are encrypted to |
+| `POST /v1/keys/register/prepare` | user | the proof-of-possession bytes and the one owner message for a registration |
+| `POST /v1/keys/register` | user | file the key on every registry |
+| `POST /v1/keys/retire/prepare` | user | the owner message that ends one key at a chosen time |
+| `POST /v1/keys/retire/presign` | user | store a signed emergency retirement with the retirement service |
+| `POST /v1/keys/retire` | user | retire a key now or at a set time |
+| `POST /v1/keys/revoke/prepare` | user | the owner message that removes every key |
+| `POST /v1/keys/revoke` | user | remove every key on every registry |
+| `POST /v1/keys/cancel/prepare` | user | the owner message that kills a registration that has not landed |
+| `POST /v1/keys/cancel` | user | cancel a pending registration |
+| `GET /v1/keys/:account` | user | your key record, each filed leg, and each registry's live state |
+| `POST /v1/keys/maker-approvals/prepare` | user | the live state and nonce for each maker approval |
+| `POST /v1/keys/maker-approvals` | user | file signed maker approvals or withdrawals |
+| `GET /v1/keys/:account/maker-approvals/filings` | user | the outcome of each approval the relayer filed |
+| `GET /v1/keys/:account/maker-approvals` | user | the makers whose ads name your account |
+
+## One owner signature, every registry
+
+Each key operation is one wallet signature, the **owner signature**, over one message that names every registry it is
+for. You never sign once per chain.
+
+- **The account** is your settlement identity: an EVM address (`0x` + 40 hex) or a Stellar ed25519 key (`0x` + 64 hex,
+  the `G…` key decoded). An EVM address padded to 32 bytes is accepted and read as the 20-byte form.
+- **The scheme follows the account, not the chain.** An EVM account signs EIP-712 typed data (`scheme: "secp256k1"`).
+  A Stellar account signs a fixed SEP-53 text (`scheme: "sep53"`). Both registries accept both schemes, so the same
+  signature works on Stellar and on EVM.
+- **Each registry is a leg** `{ chainId, registry, nonce }`: the chain id, the registry's 32-byte id, and that
+  registry's current nonce for your account. Legs are always ordered EVM first, then by chain id. A message names at
+  most 8 legs.
+- **The EIP-712 domain** is `{ name: "ProofBridge Keys", version: "2", salt }`, where the salt binds the environment
+  (`local`, `testnet` or `mainnet`). It has no chain id; the legs bind the chains.
+- **Each leg lands on its own.** If one chain lands and another fails, posting the same body again sends only the
+  missing legs. A registry that already holds your key counts as landed, so signing a fresh message after a partial
+  landing is safe too.
+
+Registration also needs a **proof of possession** per registry: a signature by the BLS key itself (not your wallet)
+over that leg's `popMsg`. It proves you hold the key's secret. Each chain encodes the key differently, so each leg has
+its own `popMsg` and its own proof.
+
+<Note>
+Always rebuild the message locally from the prepare answer and compare it with `signPayload` before you sign. Check
+that `env` matches your own environment. The `@proofbridge/bls-encodings` package has `keyMessageTypedData` and
+`keyMessageText` for this.
+</Note>
+
+**Who may post.** The write routes file only for an account that is one of your signed-in wallets. Anything else is
+`403 caller does not control this account`. This is only the relayer's gas rule: the registries take the same calls
+from anyone, so you can always submit them on chain yourself.
+
+**Common refusals on every prepare and write route:**
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `unrecognized account format` | the account is neither shape |
+| `403` | `caller does not control this account` | a write route, for an account that is not your signed-in wallet |
+| `503` | `key publisher is disabled` | key filing is turned off on this relayer (write routes) |
+| `503` | `registry-unavailable` | a registry could not be read; retry in a moment, nothing was queued |
+| `503` | `registries disagree on the key environment (<envs>)` | the registries are misconfigured |
+
+## Get the half-encryption key
+
+`GET /v1/keys/half-encryption`
+
+Before you send your half of a trade secret (`POST /v1/trades/:id/half`, or the maker's lock), fetch the key to
+encrypt it to. The key is signed by a long-term announcement key whose public half is pinned in the frontend and the
+agent runtime. Verify `signature` against your pin and refuse to seal anything if it fails. Send `keyId` back with
+every envelope you seal. See [Trade secrets](/v3/concepts/trade-secrets).
+
+```json
+{
+  "keyId": "<keyId>",   // send back with each envelope
+  "algorithm": "RSA-OAEP-3072-SHA256",
+  "publicKey": "MIIBojANBgkqhkiG9w0BAQEFAAOC…",  // SPKI DER, base64
+  "signature": "MEUCIQDc1sWmH0a1QhJ0GmJ3…"      // P-256 over keyId + publicKey, by the pinned key
+}
+```
+
+`verifyKeyAnnouncement(pinnedKey, { keyId, spki, signature })` in `@proofbridge/bls-encodings` checks it and returns
+the key for `sealHalf`. The key rotates; always use the latest. Answers `503` if the key provider cannot answer.
+
+## Register a key
+
+### Prepare
+
+`POST /v1/keys/register/prepare` reads each registry's nonce and returns one leg per registry, each with the bytes your
+BLS key signs for its proof of possession, plus the one owner message. The owner message does not contain the proofs,
+so you can sign them in either order. It writes nothing.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "blsPubKey": "0xa1a1…a1",      // compressed G1, 0x + 96 hex
+  "deadline": "1792000000"       // optional; unix seconds, default now + 72 h, at most 7 days
+}
+```
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "account32": "0x0000000000000000000000005b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "blsPubKey": "0xa1a1…a1",
+  "keyCommitment": "0xd4d4…d4",  // the key's fingerprint
+  "env": "testnet",              // refuse to sign if this is not yours
+  "deadline": "1792000000",
+  "scheme": "secp256k1",
+  "legs": [
+    { "chainId": "11155111", "kind": "EVM", "registryAddress": "0x1111…1111",
+      "registry": "0x0000…1111", "nonce": "0", "pkNative": "0x…", "popMsg": "0x…" },
+    { "chainId": "1000002", "kind": "STELLAR", "registryAddress": "0x2222…2222",
+      "registry": "0x2222…2222", "nonce": "0", "pkNative": "0x…", "popMsg": "0x…" }
+  ],
+  "signPayload": { "kind": "eip712", "typedData": { "primaryType": "RegisterKey" /* … */ } }
+}
+```
+
+For a Stellar account, `scheme` is `sep53` and `signPayload` is `{ "kind": "sep53", "text": "…" }`. The text reads
+`ProofBridge: register a settlement key`, then the network, account, key fingerprint, expiry and one line per leg. Sign
+it with SEP-53 `signMessage`.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `blsPubKey must be 0x + 96 hex …` | the key is malformed, not on the curve, or the identity point |
+| `400` | `deadline must be in the future and at most 604800s away` | bad deadline |
+| `503` | `<n> key registries are configured; one key message may name at most 8` | too many registries |
+
+### File
+
+`POST /v1/keys/register` checks everything the registries will check (the deadline, the owner signature over every leg,
+each leg's nonce and each proof of possession) before spending any gas. It then queues one job per leg and answers
+`202`. Each registry is filed in its own transaction from the relayer's gas keys. You pay nothing and sign no
+transaction.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "blsPubKey": "0xa1a1…a1",
+  "deadline": "1792000000",               // exactly what the owner signed
+  "ownerAuth": { "scheme": "secp256k1", "sig": "0xc3c3…" },  // 65 bytes, or 64-byte ed25519 for sep53
+  "registrations": [                      // one per registry chain, in the signed order
+    { "chainId": "11155111", "nonce": "0", "pop": "0xb2b2…" },  // pop: compressed G2, 0x + 192 hex
+    { "chainId": "1000002", "nonce": "0", "pop": "0xb2b2…" }
+  ],
+  "derivationIndex": "0",                 // optional hints for recovering the key on a new device
+  "seedMode": "none",                     // "none" | "password" | "passkey"
+  "derivationAccount": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4"
+}
+```
+
+The response is the key status (see [Key status](#key-status)), with one `REGISTER` publication per queued leg in
+`PENDING`. Poll `GET /v1/keys/:account` until every leg is `CONFIRMED`.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `legs required for every chain with a key registry — missing: <chainIds>` | a registration must name every registry |
+| `400` | `each registry chain may appear once`, `unknown chain <chainId>` | bad legs |
+| `400` | `the signed registration expired — prepare and sign again` | the deadline passed |
+| `400` | `owner-auth scheme must be …` | the wrong scheme for this account |
+| `400` | `owner signature does not verify for this account over these legs …` | sign the message prepare returned, legs in the same order |
+| `400` | `chain <chainId>: nonce <n> is stale …` | the registry's nonce moved; prepare and sign again |
+| `400` | `chain <chainId>: proof of possession does not verify …` | a bad proof for that leg |
+| `409` | `chain <chainId>: a revocation at nonce <n> is still in flight …` | wait for it to land (also for a cancellation) |
+
+## Rotate, retire and cancel
+
+**Rotation** has no route of its own. You register a new key with `POST /v1/keys/register` while the old one stays.
+Each registry keeps up to 5 live keys per account, and a new key is usable as soon as it lands. A key that was ever
+registered can never be registered again for that account, so each rotation uses a fresh key. A co-signature with the
+new key is accepted once it is live on both chains of the trade; new trades switch to it as soon as both legs land.
+
+**Retirement** ends one key at a time you choose. The relayer stops accepting co-signatures under a key 15 minutes
+before its retirement time, so move open trades to the new key first, or pick a time after the open orders signed under
+the old key have closed. A retired key still counts toward the 5 until the registry prunes it.
+
+**A pre-signed retirement** is an emergency off switch you file in advance. You sign a retirement that takes effect at
+once, and the retirement service stores it. It is sent only in an incident. A stored retirement can only end that key;
+it can never move funds. Each time you rotate, file one for the new key too.
+
+**Revocation** removes every key on the account. **Cancel** stops a registration you signed but no longer want, before
+it lands everywhere.
+
+### Retire prepare
+
+`POST /v1/keys/retire/prepare` builds the `RetireKey(account, keyCommitment, validUntil)` message. It names the key,
+not a registry, and has no nonce and no deadline. Because a retirement can only shorten a key's life, one signature
+never goes stale and can do nothing but end that key. Send `validUntil: "1"` to prepare a pre-signed emergency
+retirement.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "keyCommitment": "0xd4d4…d4",
+  "validUntil": "1"              // unix seconds, non-zero; "1" = ends at once
+}
+```
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "account32": "0x0000…beddc4",
+  "keyCommitment": "0xd4d4…d4",
+  "validUntil": "1",
+  "env": "testnet",
+  "scheme": "secp256k1",
+  "legs": [                      // for display: every registry where the key has a slot
+    { "chainId": "11155111", "kind": "EVM", "registryAddress": "0x1111…1111", "slotId": 0 },
+    { "chainId": "1000002", "kind": "STELLAR", "registryAddress": "0x2222…2222", "slotId": 0 }
+  ],
+  "signPayload": { "kind": "eip712", "typedData": { "primaryType": "RetireKey" /* … */ } }
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `validUntil must be non-zero` | |
+| `400` | `no registry holds key <keyCommitment> for this account` | the key is not registered |
+| `400` | `chain <chainId>: slot <slotId> already expires at <t> — retirement can only shorten it` | the time is later than the current expiry |
+
+### Store a pre-signed retirement
+
+`POST /v1/keys/retire/presign` files your signature over `RetireKey(account, keyCommitment, 1)` with the retirement
+service. **Nothing is sent on chain.** One entry is stored per registry where the key is live, each `ON_FILE`. Filing
+again for the same key replaces the stored signature.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "keyCommitment": "0xd4d4…d4",
+  "ownerAuth": { "scheme": "secp256k1", "sig": "0xc3c3…" },
+  "label": "Example Fund"        // optional display name
+}
+```
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "filed": [
+    { "id": "8a1c2e3f-4b5d-4e6f-9a0b-1c2d3e4f5a6b", "account": "0x0000…beddc4", "chainId": "1000002",
+      "slotId": 0, "keyCommitment": "0xd4d4…d4", "scheme": "secp256k1", "status": "ON_FILE" },
+    { "id": "9b2d3f4a-5c6e-4f7a-8b1c-2d3e4f5a6b7c", "account": "0x0000…beddc4", "chainId": "11155111",
+      "slotId": 0, "keyCommitment": "0xd4d4…d4", "scheme": "secp256k1", "status": "ON_FILE" }
+  ]
+}
+```
+
+Answers `201`.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `owner signature does not verify for this account, key and expiry` | the signature is not over `RetireKey(…, 1)` |
+| `400` | `key <keyCommitment> holds no live, unretired slot for this account on any registry — nothing to file` | the key is not live anywhere |
+
+### Retire now
+
+`POST /v1/keys/retire` sends a signed retirement to every registry where the key has a slot. A registry whose key
+already expires at or before `validUntil` is skipped. You need an earlier registration through the relayer.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "keyCommitment": "0xd4d4…d4",
+  "validUntil": "1792600000",    // earlier than the key's current expiry
+  "ownerAuth": { "scheme": "secp256k1", "sig": "0xc3c3…" }
+}
+```
+
+Answers `202` with the key status, one `SET_VALID_UNTIL` publication per chain.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `404` | `no key record for this account` | no earlier registration through the relayer |
+| `400` | `owner signature does not verify for this account, key and expiry` | |
+| `400` | `chain <chainId>: slot <slotId> already expires at <t> — retirement can only shorten it` | |
+
+### Revoke prepare and revoke
+
+`POST /v1/keys/revoke/prepare` builds the `RevokeKeys(account, legs)` message, naming every registry. A revocation
+removes **every** key on the account, a hosted pod's included; `pods` lists the pods it would stop, so you can say so
+before the owner signs.
+
+```json
+{ "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4" }
+```
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "account32": "0x0000…beddc4",
+  "env": "testnet",
+  "scheme": "secp256k1",
+  "legs": [
+    { "chainId": "11155111", "kind": "EVM", "registryAddress": "0x1111…1111", "registry": "0x0000…1111", "nonce": "1" },
+    { "chainId": "1000002", "kind": "STELLAR", "registryAddress": "0x2222…2222", "registry": "0x2222…2222", "nonce": "1" }
+  ],
+  "signPayload": { "kind": "eip712", "typedData": { "primaryType": "RevokeKeys" /* … */ } },
+  "pods": [ { "podId": "6f1c2a9e-3b7d-4f0a-9c1e-2d5b8a7f4e31", "label": "Fund A" } ]
+}
+```
+
+`POST /v1/keys/revoke` files it, one `REVOKE` publication per registry, and sets the record to `REVOKED`.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "ownerAuth": { "scheme": "secp256k1", "sig": "0xc3c3…" },
+  "revocations": [                // every registry, in the signed order
+    { "chainId": "11155111", "nonce": "1" },
+    { "chainId": "1000002", "nonce": "1" }
+  ]
+}
+```
+
+| Status | Error | When |
+| --- | --- | --- |
+| `404` | `no key record for this account` | |
+| `409` | `account has <n> open trade(s) — settle or cancel them before revoking` | open trades where the account is the maker, bridger or settlement signer |
+| `400` | `legs required for every chain with a key registry — missing: <chainIds>` | |
+| `400` | `chain <chainId>: nonce <n> is stale …` | prepare and sign again |
+| `409` | `chain <chainId>: a cancellation at nonce <n> is still in flight …` | wait for it to land |
+
+### Cancel prepare and cancel
+
+`POST /v1/keys/cancel/prepare` builds `CancelPending(account, legs)` for a registration that has not landed everywhere.
+A cancel uses up the registry's nonce without touching any key, so the pending registration signature can never land
+there. Its legs name only the registries where the key has not landed. Use it to stop a signed registration you no
+longer want before its deadline.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "keyCommitment": "0xd4d4…d4"   // optional; default: your current key
+}
+```
+
+The response has the same shape as revoke prepare, plus `keyCommitment`, and without `pods`. `POST /v1/keys/cancel`
+takes `{ account, keyCommitment, ownerAuth, revocations }`, where `revocations` are the legs prepare returned.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `409` | `nothing to cancel — the key landed on every registry; use revoke` | prepare: nothing left to cancel |
+| `409` | `the key landed on chain <chainId> — use revoke` | the key landed on that chain meanwhile |
+| `400` | `chain <chainId>: nonce <n> is stale …` | prepare and sign again |
+
+## Key status
+
+`GET /v1/keys/:account`
+
+Your key record, every leg the relayer filed (`publications`, oldest first), and each registry's live state read now
+(`onChain`). Anyone signed in may read any account. It works with no record too, which is how you read the live nonces
+before signing. It writes nothing.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "blsPubKey": "0xa1a1…a1",       // your current key; null with no record
+  "status": "ACTIVE",             // "ACTIVE" | "REVOKED" | null
+  "derivationIndex": 0,
+  "seedMode": "none",
+  "passkeyCredentialId": null,
+  "derivationAccount": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "publications": [
+    { "chainId": "11155111", "action": "REGISTER", "nonce": "0", "slotId": 0, "validUntil": null,
+      "status": "CONFIRMED", "txHash": "0x7f3e…", "error": null,
+      "createdAt": "2026-10-04T10:00:00.000Z", "keyCommitment": "0x9e8d…" },
+    { "chainId": "1000002", "action": "REGISTER", "nonce": "0", "slotId": null, "validUntil": null,
+      "status": "PENDING", "txHash": null,
+      "error": "waiting for chain 1000002: sends paused after repeated failures, next try at …",
+      "createdAt": "2026-10-04T10:00:00.000Z", "keyCommitment": "0x9e8d…" }
+  ],
+  "onChain": [
+    { "chainId": "11155111", "nonce": "1", "usable": true, "unread": false,
+      "slots": [ { "slotId": 0, "commitment": "0x9e8d…", "validUntil": "0", "registeredAt": "1791540000",
+                   "expired": false, "matchesRecord": true, "holder": "OWNER", "podId": null } ],
+      "currentSlotId": 0, "commitment": "0x9e8d…", "matchesRecord": true },
+    { "chainId": "1000002", "nonce": "0", "usable": false, "unread": false, "slots": [],
+      "currentSlotId": null, "commitment": null, "matchesRecord": false }
+  ],
+  "keys": [                       // every key filed under the account, yours and any pod's
+    { "blsPubKey": "0xa1a1…a1", "commitment": "0x9e8d…", "holder": "OWNER", "podId": null }
+  ]
+}
+```
+
+- `action` is `REGISTER`, `REVOKE`, `CANCEL` or `SET_VALID_UNTIL` (a retirement).
+- `validUntil` on a slot is unix seconds; `"0"` means no expiry.
+- `unread: true` means that registry could not be read this time. Keep your last known state for that chain rather than
+  reading the empty fields as "no key".
+
+**Reading it.** Your key is live on a chain when that chain's `onChain[].matchesRecord` is `true`. Settlement needs it
+live on both chains of the trade. A leg is pending while its publication is `PENDING` or `SUBMITTED`; show `error` as
+the reason when set.
+
+| Leg status | Meaning |
+| --- | --- |
+| `PENDING` | queued, or waiting on a transient failure; `error` says why |
+| `SUBMITTED` | sent, waiting to be confirmed |
+| `CONFIRMED` | landed on that registry |
+| `FAILED` | did not land; read `error`. Posting the same body again retries it |
+| `NEEDS_RESIGN` | the nonce moved, so this signature can no longer land. Prepare and sign again |
+
+If a leg fails with `this key was registered before — derive a fresh key and retry`, derive the next key index and
+register that.
+
+## Maker approvals
+
+When an ad names a settlement signer other than the maker's own wallet, that signer must approve the maker in the ad
+chain's key registry first. The escrow refuses the ad, and every lock on it, until it has. These routes let the signer
+file approvals, or withdraw them, through the relayer, which pays the gas. An ad that names its own maker needs no
+approval. See [Agents](/v3/concepts/agents).
+
+### Prepare
+
+`POST /v1/keys/maker-approvals/prepare` answers each pair's live state and the nonce its next `ApproveMaker` must
+carry. Sign one `ApproveMaker` per row, with one leg `{ chainId, registry: registryId, nonce }`, under the account's
+scheme. It writes nothing.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "approvals": [ { "chainId": "1000002", "maker": "0x3c3c…3c" } ]   // 1 to 8 pairs; maker is a 32-byte id
+}
+```
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "account32": "0x0000…beddc4",
+  "scheme": "secp256k1",
+  "approvals": [
+    { "chainId": "1000002", "chainKind": "STELLAR", "registryAddress": "0x2222…2222",
+      "registryId": "0x2222…2222", "env": "testnet", "maker": "0x3c3c…3c",
+      "approved": false, "nonce": "0" }
+  ]
+}
+```
+
+Answers `404` when the chain has no key registry.
+
+### File
+
+`POST /v1/keys/maker-approvals` checks every row before recording any, then records one filing per accepted row and
+answers `202`. Nothing is sent inside the request; the relayer sends each filing afterwards from its gas key.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "approvals": [
+    { "chainId": "1000002", "maker": "0x3c3c…3c",
+      "approved": true,              // false withdraws
+      "nonce": "0", "deadline": "1792000000",
+      "ownerAuth": { "scheme": "secp256k1", "sig": "0xc3c3…" } }
+  ]
+}
+```
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "accepted": [
+    { "id": "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b", "chainId": "1000002", "maker": "0x3c3c…3c",
+      "approved": true, "nonce": "0", "status": "PENDING" }
+  ],
+  "skipped": []                      // rows already in the asked state: { chainId, maker, approved, reason: "already-in-state" }
+}
+```
+
+- **Already as asked.** A row already in the requested state on chain is answered under `skipped` and costs nothing. To
+  retry a partly filed batch, post the same body again.
+- **Known makers only.** The relayer pays to approve a maker it has seen: the creator of an ad naming your account, an
+  account linked on that chain, or a wallet that has signed in. Withdrawing is always allowed.
+- **Budgets.** The gas the relayer pays is capped per rolling window (24 h by default): 20 filings per user, 100 per
+  caller address across every user behind it, and 500 for the relayer as a whole. The caps count filings, not
+  attempts. After five failed attempts for one pair the relayer stops re-sending it, and you file on the registry
+  directly.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | | a deadline past or more than 7 days ahead, the wrong scheme, a signature that does not verify, or a maker the relayer has never seen |
+| `409` | | the nonce moved (prepare again), a filing for that pair and nonce is in flight, it already landed, or it failed the maximum number of times |
+| `429` | | one of the three budgets is reached; the message names which |
+| `503` | `Key registry unreachable — retry` | |
+
+### Filings
+
+`GET /v1/keys/:account/maker-approvals/filings` lists your account's relayer-paid filings, newest first (at most 50).
+Poll it until each accepted `id` is `CONFIRMED` or `FAILED`. The account must be one of your signed-in wallets.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "filings": [
+    { "id": "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b", "chainId": "1000002", "maker": "0x3c3c…3c",
+      "approved": true, "nonce": "0", "status": "CONFIRMED", "txHash": "0x…", "error": null,
+      "createdAt": "2026-10-04T10:00:00.000Z", "updatedAt": "2026-10-04T10:00:20.000Z" }
+  ]
+}
+```
+
+| Status | Meaning |
+| --- | --- |
+| `PENDING` | accepted, not sent yet |
+| `SUBMITTED` | sent, waiting for its receipt |
+| `CONFIRMED` | landed |
+| `FAILED` | did not land; the reason is in `error`. You may file that pair again |
+
+### List
+
+`GET /v1/keys/:account/maker-approvals` lists the makers whose ads name your account as settlement signer, one row per
+ad chain and maker, with the pair's live state. The account must be one of your signed-in wallets. To withdraw, sign
+`ApproveMaker` with `approved: false` at the row's `nonce` and file it.
+
+```json
+{
+  "account": "0x5b38da6a701c568545dcfcb03fcb875f56beddc4",
+  "account32": "0x0000…beddc4",
+  "approvals": [
+    { "chainId": "1000002", "chainKind": "STELLAR", "registryAddress": "0x2222…2222",
+      "registryId": "0x2222…2222", "env": "testnet", "maker": "0x3c3c…3c",
+      "makerAddress": "GB…", "adIds": ["123e4567-e89b-12d3-a456-426614174000"],
+      "approved": true, "nonce": "1" }
+  ]
+}
+```
+
+## Pods
+
+A hosted pod registers its own agent key through these same routes: the owner signs the registration the pod prepares
+and posts it to `POST /v1/keys/register`. See [Pods](/v3/api/pods).
