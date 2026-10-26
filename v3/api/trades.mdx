@@ -1,0 +1,555 @@
+---
+title: "Trades"
+description: "Reserve liquidity, deposit, lock and confirm a trade, and read its progress"
+---
+
+A trade is one bridger taking one maker's ad. These endpoints reserve the liquidity, build the
+deposit and lock calls for each wallet to send, and check the chain to see that each one landed. The
+relayer never moves funds. Settlement, the step after the lock, is on [Settlement](/v3/api/settlement).
+
+## Endpoints
+
+| Endpoint | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/trades/all` | user | List your trades |
+| `GET /v1/trades/assigned` | user | List the trades your agent key may act on |
+| `GET /v1/trades/:id` | user | One trade, with its timeline |
+| `POST /v1/trades/create` | user | Reserve liquidity and get the `createOrder` call |
+| `POST /v1/trades/:id/create-data` | user | Fetch the same `createOrder` call again |
+| `GET /v1/trades/:id/deposits` | user | Whether each deposit has reached settlement grade |
+| `GET /v1/trades/:id/params` | user | The order, the pinned roots, the maker key and the nullifiers to sign |
+| `POST /v1/trades/:id/lock` | user | The maker's `lockForOrder` call |
+| `POST /v1/trades/:id/half` | user | Send your half of the trade secret |
+| `POST /v1/trades/:id/confirm` | user | Report that the deposit or the lock landed |
+
+## The flow
+
+| Step | Who | Where |
+| --- | --- | --- |
+| Reserve and get the order | bridger | `POST /v1/trades/create` |
+| Send the half of the trade secret | bridger | `POST /v1/trades/:id/half` |
+| Deposit | bridger's wallet | `OrderPortal.createOrder` on the order chain |
+| Report the deposit | bridger | `POST /v1/trades/:id/confirm` |
+| Get the lock (with the maker's half) | maker, or an agent the maker's policy names | `POST /v1/trades/:id/lock` |
+| Lock | maker's wallet or account | `AdManager.lockForOrder` on the ad chain |
+| Report the lock | maker | `POST /v1/trades/:id/confirm` |
+| Settle | both | [Settlement](/v3/api/settlement) |
+
+If the order deadline passes before settlement, the trade ends through [cancels](/v3/api/cancels).
+
+### Who counts as a party
+
+Every per-trade route admits only the trade's parties: the bridger (by signed-in wallet), the maker
+(the ad's creator, directly or through a linked account the chain says you own, or the order's
+settlement signer), or an agent whose installed policy names the ad for that settlement signer.
+Anyone else gets `403`. Each route then adds its own role: only the maker locks, and each party writes
+only its own half.
+
+## Trade statuses
+
+| Status | Meaning |
+| --- | --- |
+| `INACTIVE` | Reserved; the deposit is not seen on chain yet |
+| `ACTIVE` | The deposit is on the `OrderPortal`; waiting for the maker's lock |
+| `LOCKED` | The maker's lock is on the `AdManager`; settlement can run |
+| `COMPLETED` | Both legs paid out |
+| `CANCELLED` | Ended without settling. `cancelReason` says why (below) |
+| `CLAIMED` | Past the deadline, a cancel is under way. `claimFinalizeAt` is when the cancel window ends |
+| `DISPUTED` | A dispute is open on the `AdManager`. It stays `DISPUTED` until both legs end |
+
+| `cancelReason` | Meaning |
+| --- | --- |
+| `expired-reservation` | The deposit never landed and the 30-minute reservation expired |
+| `null` | A newer reservation by the same bridger on the same ad replaced this one |
+| `never-locked` | The maker never locked; the bridger was refunded |
+| `finalized` | The cancel window closed with no settlement |
+| `half-missing` | A leg's half of the trade secret never arrived, so the trade could not settle |
+| `forfeit-maker-paid` | A ruling went against the bridger; the deposit paid the maker |
+| `forfeit-bridger-paid` | A ruling went against the maker; the bridger was refunded and paid |
+
+A trade never moves backwards: once `CLAIMED` or `DISPUTED`, it only goes on to `COMPLETED` or
+`CANCELLED`. A deposit that lands late on an expired or replaced reservation brings it back to
+`ACTIVE`.
+
+## List trades
+
+`GET /v1/trades/all` lists only your own trades: where you are the bridger, the ad creator or the
+settlement signer, or where an agent binding of yours names the ad. Filters narrow that set; a filter
+naming someone else's address returns nothing of theirs.
+
+```json
+// query parameters, all optional
+{
+  "routeId": "2b7f4c1e-…",
+  "adId": "6d1e8a20-…",
+  "adCreatorAddress": "0x3b9f…",      // one, repeated, or comma-separated
+  "bridgerAddress": "0x7E5F…",        // same forms
+  "participantAddresses": "0x…,0x…",  // creator OR bridger; overrides the two above
+  "adTokenId": "a1b2c3d4-…",
+  "orderTokenId": "b2c3d4e5-…",
+  "minAmount": "1000",                // order-token base units
+  "maxAmount": "5000000",
+  "status": "LOCKED,CLAIMED",         // one status or a comma-separated list
+  "cursor": "…",
+  "limit": 25                         // 1 to 100
+}
+```
+
+A page can come back shorter than `limit`. Keep following `nextCursor` until it is `null`.
+
+```json
+{
+  "data": [
+    {
+      "id": "7c1e2d3a-5b4f-4e6a-9d8c-1f2e3a4b5c6d",
+      "routeId": "2b7f4c1e-8a3d-4e5f-b6a7-0c9d8e7f6a51",
+      "adId": "6d1e8a20-4b7c-4f3a-a1d2-9c0b7e5f3a18",
+      "adCreatorAddress": "0x3b9f…7e8",
+      "adChainId": "1000002",
+      "orderChainId": "11155111",
+      "bridgerAddress": "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
+      "amount": "1000000",                  // order-token base units
+      "status": "LOCKED",
+      "deadline": "1791158400",             // unix seconds
+      "createdAt": "2026-10-04T09:00:00.000Z",
+      "updatedAt": "2026-10-04T09:04:10.000Z",
+      "ad": { "id": "6d1e8a20-…", "routeId": "2b7f4c1e-…", "creatorAddress": "0x3b9f…7e8" },
+      "route": {
+        "id": "2b7f4c1e-…",
+        "adToken": { "id": "a1b2…", "symbol": "USDC", "chain": { "name": "Stellar Testnet", "chainId": "1000002", "kind": "STELLAR" }, "kind": "SAC", "address": "0x9a8b…6778", "decimals": 7 },
+        "orderToken": { "id": "b2c3…", "symbol": "USDC", "chain": { "name": "Ethereum Sepolia", "chainId": "11155111", "kind": "EVM" }, "kind": "ERC20", "address": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", "decimals": 6 }
+      },
+      "adCreatorClaimed": false,            // the maker's leg paid out
+      "bridgerClaimed": false,              // the bridger's leg paid out
+      "claimFinalizeAt": null,              // while CLAIMED: when the cancel window ends
+      "cancelReason": null,
+      "disputeFinalizeAt": null,            // while DISPUTED: when the dispute can be finalized
+      "disputeChallengeDeadline": null,     // while DISPUTED: the last second to rule or answer
+      "disputeOutcome": null,               // MutualRefund | TradeProceeds | BridgerForfeit | MakerForfeit | Resolved
+      "disputeInitiator": null,
+      "disputeInitiatorRole": null,         // maker | bridger
+      "disputeAnswered": false,
+      "timeline": [
+        { "step": "created", "at": "2026-10-04T09:00:00.000Z", "source": "relayer" },
+        { "step": "deposited", "at": "2026-10-04T09:01:00.000Z", "source": "chain", "chainId": "11155111", "txHash": "0x5c50…2060" },
+        { "step": "locked", "at": "2026-10-04T09:04:05.000Z", "source": "chain", "chainId": "1000002", "txHash": "0x9e3f…7e8" }
+      ]
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+Dispute fields are explained on [Disputes](/v3/api/disputes).
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | validation | A bad UUID, `limit` over 100, or an unknown status |
+| `400` | `Invalid address filter` | An address filter cannot be normalised |
+| `401` | `Missing bearer token` | No access token |
+
+## Trades your agent may act on
+
+`GET /v1/trades/assigned` is the discovery route for an agent runtime. It takes your signed-in wallets
+as agent keys, finds the ads their installed policies name, and returns the trades on those ads that
+the live policy lets the agent open. It takes the same query as `/all` but ignores the address
+filters, and returns the same shape. With no installed policy you get
+`{ "data": [], "nextCursor": null }`. A maker trading from their own wallet uses `/all` instead. See
+[Agents](/v3/concepts/agents).
+
+## One trade
+
+`GET /v1/trades/:id` returns the trade in the list shape, plus:
+
+- `pendingLockAttempt`: `true` when a lock was quoted or a reservation hold exists.
+- Your own receive address, and only yours: `bridgerDstAddress` if you are the bridger (where you are
+  paid on the ad chain), `adCreatorDstAddress` if you are the maker (where you are paid on the order
+  chain). This is the only route that adds them.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `Validation failed (uuid is expected)` | `:id` is not a UUID |
+| `403` | `caller is not a party to this trade` | You are not a party |
+| `404` | `Trade not found` | No such trade |
+
+### The timeline
+
+Every trade carries `timeline`: what has happened so far, oldest first. A step the chain recorded has
+`source: "chain"`, the block's close time, the chain and the transaction. A step only the relayer saw
+has `source: "relayer"` and the relayer's clock. A step that has not happened is absent, and each step
+appears at most once. Ties are shown in table order.
+
+| `step` | What happened |
+| --- | --- |
+| `created` | The bridger reserved the liquidity |
+| `deposited` | The bridger's deposit landed on the `OrderPortal` |
+| `locked` | The maker's lock landed on the `AdManager` |
+| `fee_changed` | The ad chain's fee split changed after the deposit, so the trade cannot lock. It is refunded through the never-locked cancel after the deadline |
+| `cosigned_bridger` | The bridger's co-signature was accepted |
+| `cosigned_maker` | The maker's co-signature was accepted |
+| `proof_built_ad` | The proof for the ad-chain unlock (which pays the bridger) was built |
+| `proof_built_order` | The proof for the order-chain unlock (which pays the maker) was built |
+| `settled_ad` | The ad-chain leg's payout confirmed |
+| `settled_order` | The order-chain leg's payout confirmed |
+| `cancel_claimed` | The cancel window opened on the `AdManager` |
+| `dispute_filed` | A party filed a dispute |
+| `dispute_answered` | The other party answered |
+| `dispute_ruled` | The arbiter service ruled |
+| `dispute_ended` | The dispute ended on the ad chain |
+| `cancel_recorded` | The `AdManager` recorded the cancel leaf |
+| `forfeit_recorded` | The `AdManager` recorded the forfeit leaf |
+| `expired` | The unfunded reservation expired |
+| `cancelled` | The trade was marked `CANCELLED` |
+
+## Create a trade
+
+`POST /v1/trades/create` reserves the slice of the ad you want to take and returns the exact order to
+send to the `OrderPortal`.
+
+```json
+{
+  "adId": "6d1e8a20-4b7c-4f3a-a1d2-9c0b7e5f3a18",
+  "amount": "1000000",                       // order-token base units
+  "bridgerDstAddress": "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H" // where you are paid, on the AD chain
+}
+```
+
+`routeId` is accepted but not read; the route always comes from the ad.
+
+`bridgerDstAddress` need not be a wallet you linked, but it is your identity for disputes on the ad
+chain: if you cannot sign from it, you cannot file or answer a dispute on this order (the cancel path
+still refunds you). It may not be the zero address, the ad's creator or its settlement signer.
+
+The relayer checks the ad is `ACTIVE` with no pending change, scales your amount to ad-token decimals
+and checks the ad's limits, checks that the maker's settlement signer has a usable key on both chains,
+and checks free liquidity on chain. It then sets the deadline (see
+[Deadlines and clocks](/v3/concepts/deadlines-and-clocks)) and writes the trade as `INACTIVE` with a
+hold on the ad.
+
+```json
+{
+  "tradeId": "7c1e2d3a-5b4f-4e6a-9d8c-1f2e3a4b5c6d",
+  "reqContractDetails": {
+    "chainId": "11155111",                  // the order chain
+    "contractAddress": "0x5FbD…0aa3",       // the OrderPortal
+    "orderHash": "0x2f4e…1f3e",             // the trade's key everywhere
+    "chainKind": "EVM",
+    "orderParams": {
+      "orderChainToken": "0x0000…7238",
+      "adChainToken": "0x9a8b…6778",
+      "amount": "1000000",
+      "bridger": "0x0000…5bdf",             // must equal the sending wallet
+      "orderRecipient": "0x62fc…c2d1",
+      "adChainId": "1000002",
+      "adManager": "0x4c5d…2a3b",
+      "adId": "6d1e8a20-4b7c-4f3a-a1d2-9c0b7e5f3a18",
+      "adCreator": "0x3b9f…7e8",
+      "adRecipient": "0x3b9f…7e8",
+      "salt": "164980957715010214566213624064893475949",
+      "orderDecimals": 6,
+      "adDecimals": 7,
+      "deadline": "1791158400",
+      "adSettlementSigner": "0x3b9f…7e8",
+      "lpFeeBps": 30,
+      "protocolFeeBps": 20
+    }
+  }
+}
+```
+
+Your wallet then calls `OrderPortal.createOrder(orderParams)` on `chainId` (approve `amount` first for
+an ERC-20; send exactly `amount` as value for a native token), and you call
+[confirm](#confirm-a-deposit-or-lock).
+
+### The order
+
+Every order is the same 19 fields, in this order, matching the on-chain order hash: `orderChainToken`,
+`adChainToken`, `amount`, `bridger`, `orderChainId`, `orderPortal`, `orderRecipient`, `adChainId`,
+`adManager`, `adId`, `adCreator`, `adRecipient`, `salt`, `orderDecimals`, `adDecimals`, `deadline`,
+`adSettlementSigner`, `lpFeeBps`, `protocolFeeBps`.
+
+- Addresses are `bytes32` hex; an EVM address is left-padded with zeros.
+- `salt` is the trade id read as a 128-bit number, in decimal.
+- `deadline` is unix seconds; after it the co-signed payout is refused.
+- `adSettlementSigner` is read from the ad on chain when the trade is created.
+- `lpFeeBps` and `protocolFeeBps` are the ad chain's fee split at reservation (see
+  [Fees](/v3/concepts/fees)); every order built for the trade carries the same values.
+
+Each escrow takes 17 of them: the `OrderPortal` drops `orderChainId` and `orderPortal` (its own), and
+the `AdManager` drops `adChainId` and `adManager` and calls `orderPortal` `srcOrderPortal`. The relayer
+already sends the right set for each call. See [Order hashing](/v3/concepts/order-hashing).
+
+### Reservations
+
+- A reservation holds the liquidity for **30 minutes**. If the deposit has not landed by then, the
+  trade becomes `CANCELLED` with `cancelReason: "expired-reservation"` and the hold is released. A
+  deposit that lands later still revives it on confirm.
+- One pending reservation per bridger per ad: creating again replaces the earlier one.
+- You can hold only so many open reservations (reserved, deposit not landed, not expired) at once. A
+  reservation being replaced does not count.
+
+| Cap | Limit | Error |
+| --- | --- | --- |
+| Per user | 5 | `429` `reservation-cap-user` |
+| Per IP address (an IPv6 client by its /64) | 10 | `429` `reservation-cap-ip` |
+| Per IPv6 /48 | 30 | `429` `reservation-cap-ip` |
+
+The `429` body carries `limit`. The route also has a strict per-IP rate limit.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | validation | Bad `adId`, `amount` not digits, or an unknown key |
+| `404` | `Ad not found` | No such ad |
+| `409` | `route-retired` | The ad's route takes no new trades |
+| `400` | `Ad has a pending update, please try again later` | The maker has a change pending |
+| `400` | `Ad not ACTIVE, current status: <status>` | The ad is not taking trades |
+| `403` | `No <EVM\|STELLAR> wallet linked — …` | No signed-in wallet for the order chain |
+| `400` | `Ad creator cannot create trade on own ad` | You are the maker |
+| `400` | `Invalid bridgerDstAddress` | Not an ad-chain address, or the zero address |
+| `400` | `bridgerDstAddress cannot be the ad creator or its settlement signer` | |
+| `400` | `Amount below minAmount` / `Amount above maxAmount` | Outside the ad's limits |
+| `400` | `Amount not representable in ad-token decimals (<reason>)` | |
+| `400` | `Ad settlement key is not usable on the ad chain (retired or unregistered)` | |
+| `400` | `Ad settlement key is not registered on the order chain (the maker could not claim)` | |
+| `400` | `Insufficient liquidity` | Not enough free on chain |
+| `429` | `reservation-cap-user` / `reservation-cap-ip` | A reservation cap is reached |
+| `429` | `ThrottlerException: Too Many Requests` | The per-IP rate limit |
+| `503` | `Ad chain unreachable — retry` / `Key registry unreachable — retry` | A chain read failed |
+
+## Fetch the order again
+
+`POST /v1/trades/:id/create-data` rebuilds the same `createOrder` call for a trade still `INACTIVE`,
+for when the wallet call failed or the page reloaded. It takes no body, makes no new reservation and
+does not extend the 30 minutes. The response is the same as create, byte for byte.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `403` | `caller is not the bridger of this trade` | |
+| `404` | `Trade not found` | |
+| `409` | `order already confirmed` | The deposit is confirmed |
+| `410` | `reservation expired — create a new order` | The reservation expired or was replaced |
+
+## Deposit status
+
+`GET /v1/trades/:id/deposits` reports how far each leg has got in the relayer's record of the chain.
+Poll it after the lock is confirmed. When `settlementGrade` is `true`, `/params` serves the roots and
+co-signing can start.
+
+```json
+{
+  "orderChain": { "chainId": "11155111", "status": "APPROVED" },  // the bridger's deposit
+  "adChain": { "chainId": "1000002", "status": "FINALIZED" },     // the maker's lock
+  "settlementGrade": true                                          // both APPROVED or FINALIZED
+}
+```
+
+| Leg status | Meaning |
+| --- | --- |
+| `NONE` | Not seen yet. An EVM deposit stays `NONE` until it is `EVM_CONFIRMATIONS` deep |
+| `PENDING` | Seen, not yet approved |
+| `APPROVED` | Past the confirmation depth; settlement grade |
+| `FINALIZED` | Past the chain's finality boundary |
+
+| Status | Error | When |
+| --- | --- | --- |
+| `403` | `Unauthorized` | Not a party |
+| `404` | `Trade not found` | |
+| `503` | `The account's owner could not be read from the chain — retry` | |
+
+## Order parameters for signing
+
+`GET /v1/trades/:id/params` returns the order plus everything both parties sign in the
+[co-signature](/v3/api/settlement#upload-a-co-signature).
+
+```json
+{
+  "orderChainToken": "0x0000…7238",
+  "adChainToken": "0x9a8b…6778",
+  "amount": "1000000",
+  "bridger": "0x0000…5bdf",
+  "orderChainId": "11155111",
+  "orderPortal": "0x0000…0aa3",
+  "orderRecipient": "0x62fc…c2d1",
+  "adChainId": "1000002",
+  "adManager": "0x4c5d…2a3b",
+  "adId": "6d1e8a20-4b7c-4f3a-a1d2-9c0b7e5f3a18",
+  "adCreator": "0x3b9f…7e8",
+  "adCreatorKind": "WALLET",          // WALLET | STELLAR_AGENT_ACCOUNT | EVM_CUSTODY_ACCOUNT
+  "adRecipient": "0x3b9f…7e8",
+  "salt": "164980957715010214566213624064893475949",
+  "orderDecimals": 6,
+  "adDecimals": 7,
+  "deadline": "1791158400",
+  "adSettlementSigner": "0x3b9f…7e8",
+  "lpFeeBps": 30,
+  "protocolFeeBps": 20,
+  "orderHash": "0x2f4e…1f3e",
+  "unlockChainKind": "STELLAR",       // the chain you are paid on
+  "orderChainRoot": "0x0b6c…081a",    // once both legs are settlement grade
+  "adChainRoot": "0x1d3f…9d1f",
+  "orderChainWidth": "42",            // leaf count at orderChainRoot
+  "adChainWidth": "17",
+  "makerKeyCommitment": "0x8e2b…8e0b",// the maker key both parties sign for
+  "pinnedSlot": 0,                    // after the lock: the maker's key slot the lock pinned
+  "adLegNullifier": "0x1c2b…1c2b",    // once both halves are on record
+  "orderLegNullifier": "0x0e1d…0e1d",
+  "secretCustody": { "adLeg": "parties", "orderLeg": "parties" }
+}
+```
+
+- **Roots.** The first call after both legs are settlement grade **pins** the two roots and widths on
+  the trade, so both parties sign the same pair even if more deposits land in between. A reorg that
+  replaces a pinned leaf unpins them and clears stored co-signatures; read `/params` again and re-sign.
+- **Maker key.** `makerKeyCommitment` names the maker key. Once the order is locked it is the key in
+  `pinnedSlot`, and it is absent if that slot holds no qualifying key.
+- **Nullifiers.** `adLegNullifier` and `orderLegNullifier` appear once both legs have a half on
+  record. Until then a co-signature is refused with `409 nullifiers-not-ready`.
+- **`secretCustody`.** Per leg: `parties` (the owning party sent its half), `relayer` (the half was
+  made under the earlier scheme, for older trades) or `pending` (none yet). The ad leg is the
+  bridger's half, the order leg the maker's. See [Trade secrets](/v3/concepts/trade-secrets).
+
+Refusals are the same as for `/deposits`.
+
+## Get the maker's lock
+
+`POST /v1/trades/:id/lock` returns the `lockForOrder` call for the ad chain. Only the maker, or an
+agent the maker's policy names, may call it. The body carries the maker's half for the order leg.
+
+```json
+{
+  "half": {                              // the maker's half for the order leg
+    "nullifier": "0x0e1d…0e1d",          // the order leg's nullifier
+    "keyId": "<keyId>", // from GET /v1/keys/half-encryption
+    "ciphertext": "AAECAw…"              // the 384-byte envelope, base64
+  }
+}
+```
+
+The envelope is the same as in [Send your half](#send-your-half-of-the-trade-secret). A retried lock
+may send the same half again.
+
+The relayer checks maker authority, that the trade is `ACTIVE` and not locked, and that the hold
+matches the order amount. It then picks the slot the lock pins: the settlement signer's ad-chain slot
+holding the newest key live on both trade chains that outlives the order. Then it stores the half,
+records the pending lock and returns the call.
+
+```json
+{
+  "chainId": "11155111",                 // the ad chain
+  "contractAddress": "0x4c5d…2a3b",      // the AdManager
+  "orderHash": "0x2f4e…1f3e",
+  "orderParams": { "…": "the 17-field AdManager tuple, with srcOrderPortal" },
+  "signerSlot": 0,                       // lockForOrder's second argument
+  "pinnedKeyCommitment": "0x5a1c…0c2d",  // the key in signerSlot
+  "externalSlot": false,                 // true: no key on file for the slot, you bring your own
+  "chainKind": "STELLAR",
+  "orderLegNullifier": "0x0e1d…0e1d",
+  "orderLegCustody": "parties"
+}
+```
+
+Send `lockForOrder(orderParams, signerSlot)` from the maker's wallet or account, then call
+[confirm](#confirm-a-deposit-or-lock). The `AdManager` refuses the lock once the deadline is too close
+(`Escrow__DeadlineTooSoon`).
+
+If a lock you were given is already on chain but not confirmed, the answer is
+`{ "pendingConfirmation": true, "chainKind": "STELLAR" }`: call confirm, do not lock again. A quoted
+lock is held for 10 minutes; after that a new request quotes a fresh one.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `403` | `Unauthorized` | Not the maker or its agent |
+| `404` | `Trade not found` | |
+| `400` | `deposit-pending` | The bridger's deposit is not confirmed yet |
+| `400` | `lock-pending` | A lock was quoted less than 10 minutes ago and is not on chain |
+| `400` | `Trade not ACTIVE, current status: <status>` / `Trade is already locked` | |
+| `400` | `AdLock amount mismatch` | The hold does not match the order |
+| `409` | `mid-rotation` | The signer's newest key is live on one chain only; finish the rotation |
+| `409` | `no-pinnable-slot` | No key live on both chains outlives the order; register or rotate |
+| `409` | `fee-changed` | The ad chain's fee split changed since the deposit. The trade cannot lock and is refunded after its deadline |
+| `400` | `half-nullifier-malformed`, `half-nullifier-not-a-field`, `half-key-malformed`, `half-key-unknown`, `half-ciphertext-malformed` | The half failed its checks. On `half-key-unknown`, fetch the key again and re-seal |
+| `409` | `half-conflict` | A different half is on record for the order leg; `nullifier` names it |
+| `409` | `half-required` | The cutoff has passed and the lock carries no half |
+| `503` | `a key registry could not be read — retry shortly` | |
+
+## Send your half of the trade secret
+
+`POST /v1/trades/:id/half` stores one party's half of the per-trade secret. Each payout proves
+knowledge of one half, and both parties co-sign each leg's nullifier (the hash of that half). Each
+party derives its own half from a root only it holds, so the same half comes back on every device.
+See [Trade secrets](/v3/concepts/trade-secrets).
+
+The bridger sends the ad leg's half after create and before the deposit. The maker normally sends the
+order leg's half with the [lock](#get-the-makers-lock), and may use this route instead.
+
+```json
+{
+  "leg": "AD",                           // AD = the bridger's half; ORDER = the maker's
+  "nullifier": "0x1c2b…1c2b",            // 0x + 64 hex, below the field prime
+  "keyId": "<keyId>",// the published key you sealed to
+  "ciphertext": "AAECAw…"                // the 384-byte RSA-OAEP-3072/SHA-256 envelope, base64
+}
+```
+
+Seal the half to the key published at [`GET /v1/keys/half-encryption`](/v3/api/keys), after checking
+that key's signature against the key pinned in your build. Use `sealHalf` from
+`@proofbridge/bls-encodings`. The envelope binds the half to this order and leg, so it cannot be
+replayed elsewhere. Before sending, open your own envelope locally and check that the half hashes to
+the nullifier you send.
+
+```json
+{
+  "leg": "AD",
+  "nullifier": "0x1c2b…1c2b",
+  "custody": "parties",
+  "created": true                        // false when the same half was already on record
+}
+```
+
+The first half per leg wins. Sending the same nullifier again answers `created: false`, even with a
+fresh ciphertext after a key rotation. A trade whose half never arrives cannot be co-signed and ends
+through the cancel path (`cancelReason: "half-missing"`).
+
+| Status | Error | When |
+| --- | --- | --- |
+| `403` | `only the bridger writes the AD leg's half` / `only the maker (or its settlement signer) writes the ORDER leg's half` | Wrong party for the leg |
+| `404` | `Trade not found` | |
+| `409` | `trade is cancelled — it takes no half` / `trade is completed — it takes no half` | |
+| `400` | `half-nullifier-malformed` | `nullifier` is not 0x + 64 hex |
+| `400` | `half-nullifier-not-a-field` | `nullifier` is not below the field prime |
+| `400` | `half-key-malformed` | `keyId` is not `<name>:v<n>` |
+| `400` | `half-key-unknown` | The key is unknown or retired; fetch it again and re-seal |
+| `400` | `half-ciphertext-malformed` | Not a 384-byte envelope |
+| `409` | `half-conflict` | A different half is on record; `nullifier` names it |
+| `503` | `half-key-busy` | The key was changing while the half was written; retry |
+
+## Confirm a deposit or lock
+
+`POST /v1/trades/:id/confirm` reports that the trade's pending `createOrder` or `lockForOrder` landed.
+The chain decides, not the body: the relayer reads the escrow's order status at the chain head.
+
+```json
+{ "txHash": "0x8f3c…a090" }    // informational
+```
+
+```json
+{ "tradeId": "7c1e2d3a-5b4f-4e6a-9d8c-1f2e3a4b5c6d", "success": true }
+```
+
+- **On chain:** the trade moves to `ACTIVE` (deposit) or `LOCKED` (lock) and you get `200`. The maker
+  is notified of a deposit and the bridger of a lock.
+- **Not on chain yet, `txHash` looks like a hash, still inside the window:** `202` with
+  `{ "success": false, "pending": true, "retry": true }`. Call again. The window is 10 minutes from
+  the lock quote, or 30 minutes from create for a deposit.
+- **Not on chain and the window has passed, or no hash-shaped `txHash`:** `400`. A deposit that lands
+  later still confirms, and the relayer also confirms late deposits on its own.
+
+| Status | Error | When |
+| --- | --- | --- |
+| `400` | `txHash must be a string` | Missing `txHash` |
+| `400` | `OrderPortal request not validated` / `AdManager request not validated` | Not on chain and no hash-shaped `txHash` |
+| `400` | `… not seen on chain within <N> minutes` | The window passed and it is still not on chain |
+| `403` | `Unauthorized` | Not a party |
+| `404` | `Trade update log not found` | Nothing pending: already confirmed, or replaced by a newer lock quote |
+| `409` | `Trade is cancelled (<cancelReason>); a landed action does not revive it` | The trade was cancelled for a reason other than an expired or replaced reservation |
+| `503` | `The account's owner could not be read from the chain — retry` | |
