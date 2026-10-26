@@ -1,0 +1,76 @@
+---
+title: "Agents"
+description: "Let an agent lock orders on your ads, within an on-chain policy you set, without ever handing it your funds"
+---
+
+Locking each order by hand means watching for trades. An **agent** can do
+it for you: a key that's allowed to lock orders on your ads, and nothing
+else. What it may do is written on-chain, in a policy only you can change.
+
+## Agent accounts
+
+An agent works through an **agent account**: one per Maker per chain,
+owned by your wallet. The account is the ad's maker on-chain, but it
+**never holds your funds**. When you create or fund an ad, the tokens go
+from your wallet straight into the escrow in the same call.
+
+You set up an agent account on the **Accounts** page: deploy a new one,
+or link one you already have. Your wallet stays the
+[settlement signer](/v3/concepts/settlement-keys#naming-a-settlement-signer),
+so you approve the account as a maker once, under **Maker approvals**.
+
+## What an agent can do
+
+Exactly one thing: **lock orders** on the ads its policy covers. It can't
+withdraw, close ads, file disputes, change its own policy, or touch
+anything outside your ads.
+
+## The policy
+
+Each agent has a policy on-chain:
+
+| Setting | What it limits |
+| --- | --- |
+| Tokens | which ad tokens it may lock, with a maximum per order and a daily limit that refills over time |
+| Order tokens | which tokens it accepts from Bridgers |
+| Ads | all your ads, or a list of them |
+| Settlement signer | whose key co-signs the trades it locks |
+| Expiry | when the policy ends: 7, 30, 90 or 180 days |
+
+The contracts enforce the policy, not the relayer. The relayer only reads
+it, warns you before it expires, and shows it in the app.
+
+## Stopping an agent
+
+- **Revoke** the agent: instant and permanent. A revoked agent key can
+  never be used again; a new agent needs a new key.
+- When you revoke an agent, the **retirement service** submits the
+  key retirements you signed in advance, so the agent's key also stops
+  co-signing. A stored retirement can only end a key; it can never move
+  funds.
+- You can also **halt settlement** on your ads, or retire a key directly,
+  from the app.
+
+## Guard rails
+
+Guard rails protect your ads if your owner wallet's key is ever stolen:
+
+- taking out more than a set amount, and closing an ad, need a schedule
+  that waits a delay you choose (up to 30 days) before it can run
+- loosening a policy, changing the settlement signer and similar changes
+  are delayed too
+- revoking an agent and tightening limits always take effect at once
+
+## Three ways to run it
+
+On **My Agents → Create** you choose:
+
+| Mode | What it means |
+| --- | --- |
+| Manual | no agent; you lock each trade yourself from **Orders** |
+| Self-hosted | you run the agent runtime on your own machine |
+| Hosted pod | ProofBridge runs the agent for you |
+
+Hosted pods run on infrastructure ProofBridge operates. Each pod request
+needs a ProofBridge operator's approval before anything runs. The pod
+holds its own agent key, limited by the on-chain policy above.
