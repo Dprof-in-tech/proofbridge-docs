@@ -1,0 +1,40 @@
+---
+title: "Report findings"
+description: "How to report a bug or finding from the soak so the team can act on it"
+---
+
+Every finding goes through the **Feedback** page in the app. No sign-in is needed, and each report reaches the
+team's review queue straight away. The form itself is described in
+[Report a bug or finding](/v3/guides/report-a-bug).
+
+## What to include
+
+| Field | Why it helps |
+| --- | --- |
+| **Title** | one line we can recognize: "Refund still shows pending after cancel" |
+| **Category** and **Severity** | so the right person looks first. **Blocker** means you couldn't finish. |
+| **What were you trying to do?** | the goal, in your words |
+| **What actually happened?** | include any error message, exactly as shown |
+| **What did you expect instead?** | |
+| **Steps to reproduce** | in order, as far as you remember |
+| **Transaction Details** | the trade ID from the trade page, any transaction hash, the chains and token |
+| Screenshots or a screen recording | the fastest way for us to see it |
+| Your device, browser and wallet | many issues are wallet- or phone-specific |
+
+<Warning>
+Never include private keys or seed phrases, even test ones.
+</Warning>
+
+## Picking a severity
+
+| Severity | Use it when |
+| --- | --- |
+| **Blocker** | you couldn't complete the flow at all, or funds didn't arrive |
+| **High** | it worked, but only after a workaround, or something was wrong |
+| **Low** | cosmetic, wording, or a small annoyance |
+
+## After you submit
+
+You'll see **Feedback logged!** with a reference such as `PF-30001`. Quote it if you follow up with the team.
+
+{/* SOAK DETAILS: add where testers can follow up (community channel) and how fast the team responds */}

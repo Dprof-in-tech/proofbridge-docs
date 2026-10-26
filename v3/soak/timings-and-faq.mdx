@@ -1,0 +1,50 @@
+---
+title: "Timings and FAQ"
+description: "How long things take on soak, and answers to the questions testers ask most"
+---
+
+## Timings on soak
+
+| What | How long |
+| --- | --- |
+| An unfunded order holds the maker's liquidity | ~30 minutes, then it's released |
+| An order's deadline | ~40 minutes after you create it |
+| The cancel window after the deadline | 30 minutes |
+| Combining signatures and building proofs | usually 30–60 seconds |
+| A faucet claim | usually under a minute |
+| A dispute's challenge period | 1 hour |
+| A hosted pod request's review | usually within a day |
+
+The deadline and windows are set short on soak, so you can test every ending in one sitting.
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Do soak tokens have any value?">
+    No. They're testnet tokens from the faucet. Never send real assets to a soak address.
+  </Accordion>
+  <Accordion title="My trade is stuck. What do I do?">
+    Check the trade page. If it's waiting on the other party, you'll see **Maker's Turn** or **Waiting for
+    Counterparty**. If the deadline passes, the trade is cancelled and your deposit refunded automatically. If
+    something looks wrong, [report it](/v3/soak/report-findings) with the trade ID.
+  </Accordion>
+  <Accordion title="The co-sign button doesn't appear.">
+    Both deposits need enough confirmations first; the page shows **Confirming Deposits…** until then. If it says
+    **Register BLS Key**, the named wallet has no settlement key yet.
+  </Accordion>
+  <Accordion title="The faucet refused my claim.">
+    It refuses if you already hold 10,000 or more of that token, or a claim for it is still running.
+  </Accordion>
+  <Accordion title="Which wallet should I use on my phone?">
+    xBull or WalletConnect for Stellar, and WalletConnect for Ethereum. Freighter, Lobstr and Hana's browser versions
+    are desktop extensions.
+  </Accordion>
+  <Accordion title="Do I need both wallets?">
+    To bridge, you need only the wallet you send from. To try every mission, and to receive on the other chain at
+    your own address, connect both.
+  </Accordion>
+  <Accordion title="Can I lose test funds?">
+    Every trade either settles or is refunded at its deadline. If a payout can't be delivered, it waits for you as a
+    claimable balance on the trade page. If anything doesn't add up, report it.
+  </Accordion>
+</AccordionGroup>
