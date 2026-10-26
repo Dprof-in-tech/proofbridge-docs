@@ -93,6 +93,46 @@
                 ]
               }
             ]
+          },
+          {
+            "tab": "API Reference",
+            "groups": [
+              {
+                "group": "Overview",
+                "pages": [
+                  "v3/api/overview",
+                  "v3/api/authentication"
+                ]
+              },
+              {
+                "group": "Trading",
+                "pages": [
+                  "v3/api/chains-and-routes",
+                  "v3/api/ads",
+                  "v3/api/trades",
+                  "v3/api/settlement",
+                  "v3/api/cancels",
+                  "v3/api/disputes"
+                ]
+              },
+              {
+                "group": "Keys and accounts",
+                "pages": [
+                  "v3/api/keys",
+                  "v3/api/accounts",
+                  "v3/api/pods"
+                ]
+              },
+              {
+                "group": "More",
+                "pages": [
+                  "v3/api/notifications",
+                  "v3/api/faucet",
+                  "v3/api/stats",
+                  "v3/api/feedback"
+                ]
+              }
+            ]
           }
         ],
         "tag": "Latest"
