@@ -1,0 +1,91 @@
+---
+title: "Settlement keys"
+description: "The per-wallet BLS key that co-signs every trade: how it's derived, registered, retired and replaced"
+---
+
+import Screenshot from "/snippets/screenshot.mdx";
+
+Every trading wallet holds a **BLS12-381 settlement key**. At payout, the
+contracts look up the registered keys for the trade's two parties and
+check the combined signature against them. The keys are how each chain
+knows *both traders* approved the settlement. A settlement key signs
+settlement messages only; it never controls your funds.
+
+## Derived, not stored
+
+The key is derived from a wallet signature over a fixed message:
+
+```
+ProofBridge BLS key derivation v1 — do not sign on other dapps | key #0000
+```
+
+Sign the same message with the same wallet and you get the same key, on
+any device. There is no seed phrase to back up, and the server never sees
+the key. EVM wallets sign the message as a personal message; Stellar
+wallets sign it with SEP-53. The app keeps an encrypted copy in your
+browser, so routine co-signs need only one wallet tap. The registry on
+each chain stays the source of truth.
+
+The `key #NNNN` counter is the **key index**. A replacement key uses the
+next index, so the message changes, the signature changes and the key
+changes.
+
+{/* SCREENSHOT: wallet signature prompt showing the derivation message and key index */}
+<Screenshot caption="The derivation signature in the wallet: the message text and the key index" />
+
+## Registration
+
+Registration writes your key to the `BLSKeyRegistry` on **both** chains,
+because a trade settles on both. It:
+
+- carries a **proof of possession**: a BLS signature showing you hold the
+  key you're registering, so nobody can register a key they don't hold
+- is authorized by **one wallet signature** that covers both registries
+  (EIP-712 for an EVM wallet, SEP-53 for a Stellar wallet)
+- is submitted by the relayer, which pays the gas. You can submit the same
+  registration yourself instead.
+
+To register on both chains, sign with a regular wallet: an EVM wallet that
+holds its own private key, or a Stellar account signing with its own key.
+Smart-contract wallets (a Safe, a 4337 wallet, a Stellar passkey or
+contract account) can't register on both chains yet.
+
+## Per wallet, not per user
+
+The contracts check the keys of the trade's two deposit wallets. They have
+no notion of a "user" with linked wallets. If you make markets from a
+Stellar wallet and bridge from an EVM wallet, each registers its own key.
+
+## Several keys at once
+
+An account can have up to **five** live keys at a time, each with an
+optional expiry. That lets a new key go live before the old one ends, and
+lets an agent's key sit alongside your own.
+
+When an order is locked, the Maker's co-signing key for that trade is
+**pinned**. If that key ends before the trade settles, both parties are
+asked to sign again with a live key.
+
+## Naming a settlement signer
+
+Each ad names the wallet whose key co-signs the Maker's side. If the ad
+names a wallet other than the Maker itself (for example, an agent account
+naming your own wallet), that wallet must approve the Maker first. This
+stops anyone from naming your key on their ad without your consent. The
+approval is on the **BLS Keys** page under **Maker approvals**.
+
+## Retiring, replacing and revoking
+
+- **Retire** ends a key now, on every registry. The relayer pays the gas.
+  Retiring only shortens a key's life; it never moves funds.
+- **Emergency stop** is a retirement you sign in advance. The **retirement
+  service** stores it and submits it when it's needed: when you revoke an
+  agent, or in an incident. A stored retirement can only end a key; it can
+  never move funds.
+- **Replace** a key by registering the next key index. In-flight trades
+  keep their pinned key until they end.
+- **Revoke** removes every key on the wallet. It's refused while the
+  wallet has open trades.
+
+{/* SCREENSHOT: BLS Keys page, key row with Retire key and File an emergency stop actions */}
+<Screenshot caption="Retire a key, or file an emergency stop" />
